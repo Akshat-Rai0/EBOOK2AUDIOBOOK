@@ -209,5 +209,86 @@ def ingest(file: Path, project: str, override: bool) -> None:
     click.echo(f"  chapters.txt → {chapters_txt_path}")
 
 
+# ---------------------------------------------------------------------------
+# castbook convert
+# ---------------------------------------------------------------------------
+
+
+@cli.command()
+@click.option(
+    "--project",
+    "-p",
+    required=True,
+    help="Project name in projects/<project>/ to convert.",
+)
+@click.option(
+    "--engine",
+    "-e",
+    default="fake",
+    type=click.Choice(["fake", "vits"], case_sensitive=False),
+    help="TTS Engine to use for synthesis (defaults to fake for offline testing).",
+)
+def convert(project: str, engine: str) -> None:
+    """
+    Run narrator-only conversion from book.json to chapter MP3s and M4B.
+
+    Supports pause and resume safely via projects/<project>/state.sqlite.
+
+    \b
+    Example:
+        castbook convert --project dracula
+    """
+    from ebook2audiobook.models.book import Book
+    from ebook2audiobook.orchestrator.pipeline import PipelineOrchestrator
+    from ebook2audiobook.tts.fake_tts import FakeTTS
+
+    project_dir = Path("projects") / project
+    book_json_path = project_dir / "book.json"
+
+    if not book_json_path.exists():
+        click.secho(
+            f"Error: {book_json_path} not found.\n"
+            f"Run 'castbook ingest <file> --project {project}' first.",
+            fg="red",
+        )
+        sys.exit(1)
+
+    book = Book.model_validate_json(book_json_path.read_text(encoding="utf-8"))
+
+    # Initialise selected TTS engine
+    if engine.lower() == "fake":
+        tts_engine = FakeTTS()
+    else:
+        click.secho(
+            "VITS engine integration benchmark scheduled for Week 6. Using FakeTTS for testing.",
+            fg="yellow",
+        )
+        tts_engine = FakeTTS()
+
+    click.echo(f"Starting conversion for '{book.title}' in projects/{project}/")
+    click.echo(f"  Chapters : {book.chapter_count}")
+    click.echo(f"  Engine   : {tts_engine.engine_name}")
+    click.echo("")
+
+    orchestrator = PipelineOrchestrator(project_dir=project_dir, tts_engine=tts_engine)
+
+    last_reported = 0
+
+    def on_progress(done: int, total: int, eta_sec: float) -> None:
+        nonlocal last_reported
+        pct = (done / total * 100) if total else 100.0
+        # Print progress every segment or on completion
+        mins = int(eta_sec // 60)
+        secs = int(eta_sec % 60)
+        eta_str = f"{mins}m {secs:02d}s" if mins > 0 else f"{secs}s"
+        click.echo(f"\r  Progress: [{done}/{total}] {pct:5.1f}% | ETA: {eta_str}   ", nl=False)
+        last_reported = done
+
+    job = orchestrator.run_narrator_pipeline(book=book, progress_callback=on_progress)
+    click.echo("\n")
+    click.secho(f"✓ Conversion complete! Stage status: {job.stage_status.value}", fg="green")
+    click.echo(f"  Audio files: {project_dir / 'output'}")
+
+
 if __name__ == "__main__":
     cli()
