@@ -49,7 +49,10 @@ def _get_nlp():
     try:
         import spacy
 
-        _spacy_nlp = spacy.load("en_core_web_sm", disable=["ner", "tagger", "parser"])
+        _spacy_nlp = spacy.load(
+            "en_core_web_sm",
+            disable=["ner", "tagger", "parser", "lemmatizer", "attribute_ruler"],
+        )
         # Enable the sentencizer (fast rule-based) instead of the DependencyParser.
         if "sentencizer" not in _spacy_nlp.pipe_names:
             _spacy_nlp.add_pipe("sentencizer")
