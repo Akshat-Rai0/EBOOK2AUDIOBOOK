@@ -1,0 +1,139 @@
+{
+  "$defs": {
+    "Chapter": {
+      "description": "One chapter extracted from the ebook.\n\n``confidence`` (0\u20131) reflects how certain the detector is that this is a\nreal chapter boundary.  A score below 0.5 means the boundary was found by\nweak heuristics; the user can override with ``chapters_override.json``.",
+      "properties": {
+        "id": {
+          "description": "Stable identifier: c<CC>",
+          "title": "Id",
+          "type": "string"
+        },
+        "index": {
+          "description": "0-based reading order.",
+          "title": "Index",
+          "type": "integer"
+        },
+        "title": {
+          "description": "Chapter heading as extracted from the file.",
+          "title": "Title",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 1.0,
+          "description": "Chapter-detection confidence (1.0 = structural, <0.5 = heuristic).",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "paragraphs": {
+          "items": {
+            "$ref": "#/$defs/Paragraph"
+          },
+          "title": "Paragraphs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "index",
+        "title"
+      ],
+      "title": "Chapter",
+      "type": "object"
+    },
+    "Paragraph": {
+      "description": "One block of text within a chapter.\n\n``id`` follows the pattern ``c<chapter_index>-p<paragraph_index>``, e.g.\n``c01-p003`` for the third paragraph of chapter one.  Indices are\nzero-padded to three digits so lexicographic order matches reading order.",
+      "properties": {
+        "id": {
+          "description": "Stable identifier: c<CC>-p<PPP>",
+          "title": "Id",
+          "type": "string"
+        },
+        "text": {
+          "description": "Cleaned text, ready for NLP.",
+          "title": "Text",
+          "type": "string"
+        },
+        "original_text": {
+          "description": "Raw text before any cleaning.",
+          "title": "Original Text",
+          "type": "string"
+        },
+        "is_dialogue": {
+          "default": false,
+          "description": "True when the paragraph contains at least one quoted speech span.",
+          "title": "Is Dialogue",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "text",
+        "original_text"
+      ],
+      "title": "Paragraph",
+      "type": "object"
+    }
+  },
+  "description": "The complete parsed representation of one ebook.\n\nWritten to ``projects/<name>/book.json`` after the ingest stage.\nDownstream agents treat this as their authoritative source of truth.",
+  "properties": {
+    "id": {
+      "description": "UUID generated at extraction time.",
+      "title": "Id",
+      "type": "string"
+    },
+    "title": {
+      "default": "",
+      "description": "Book title from metadata or filename.",
+      "title": "Title",
+      "type": "string"
+    },
+    "author": {
+      "default": "",
+      "description": "Author from metadata, empty if unknown.",
+      "title": "Author",
+      "type": "string"
+    },
+    "language": {
+      "default": "en",
+      "description": "BCP-47 language tag detected or defaulted.",
+      "title": "Language",
+      "type": "string"
+    },
+    "source_path": {
+      "description": "Absolute path to the original file.",
+      "title": "Source Path",
+      "type": "string"
+    },
+    "source_format": {
+      "description": "One of: epub, txt, docx, pdf.",
+      "title": "Source Format",
+      "type": "string"
+    },
+    "chapters": {
+      "items": {
+        "$ref": "#/$defs/Chapter"
+      },
+      "title": "Chapters",
+      "type": "array"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    },
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "source_path",
+    "source_format"
+  ],
+  "title": "Book",
+  "type": "object"
+}

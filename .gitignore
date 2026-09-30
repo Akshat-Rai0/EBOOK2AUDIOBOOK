@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# uv
+uv.lock          # committed — do NOT ignore
+.python-version  # committed
+
+# Runtime project data (book content must not enter the repo)
+projects/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+._*
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Models (large binary files downloaded at runtime)
+models/
+
+# Logs
+*.log

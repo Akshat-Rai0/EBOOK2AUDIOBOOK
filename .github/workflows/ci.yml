@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "m*"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  lint-and-test:
+    name: Lint + Test (Python 3.11)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        # --frozen: fail if uv.lock is out of date
+        run: uv sync --frozen
+
+      - name: Lint (ruff check)
+        run: uv run ruff check .
+
+      - name: Format check (ruff format)
+        run: uv run ruff format --check .
+
+      - name: Run tests
+        # --no-header: cleaner CI output
+        # -q: quiet (show only summary + failures)
+        # No network: tests are fully offline by design (FakeTTS, synthetic files)
+        run: uv run pytest -q --no-header
+        env:
+          # Ensure no accidental network calls leak through env vars
+          no_proxy: "*"

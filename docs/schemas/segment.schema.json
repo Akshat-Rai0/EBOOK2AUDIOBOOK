@@ -1,0 +1,95 @@
+{
+  "$defs": {
+    "SegmentKind": {
+      "description": "Semantic kind of a spoken segment.",
+      "enum": [
+        "dialogue",
+        "narration",
+        "thought"
+      ],
+      "title": "SegmentKind",
+      "type": "string"
+    },
+    "SegmentStatus": {
+      "description": "Processing status stored in state.sqlite and mirrored in segments.json.\n\nThink of it like a to-do list: pending \u2192 in progress (running) \u2192 done or\nfailed.  A failed segment is retried up to two times, then marked skipped\nso the rest of the book can still be produced.",
+      "enum": [
+        "pending",
+        "running",
+        "done",
+        "failed",
+        "skipped"
+      ],
+      "title": "SegmentStatus",
+      "type": "string"
+    }
+  },
+  "description": "One unit of speech: text + speaker + kind + processing state.\n\nThe TTS agent reads ``text``, looks up the voice for ``speaker`` in the\nCast, and writes a WAV file to ``audio_path``.",
+  "properties": {
+    "id": {
+      "description": "Stable identifier: c<CC>-p<PPP>-s<SS>",
+      "title": "Id",
+      "type": "string"
+    },
+    "chapter": {
+      "description": "0-based chapter index.",
+      "title": "Chapter",
+      "type": "integer"
+    },
+    "paragraph_id": {
+      "description": "Parent paragraph id: c<CC>-p<PPP>",
+      "title": "Paragraph Id",
+      "type": "string"
+    },
+    "speaker": {
+      "description": "Canonical speaker name.  Use 'narrator' for narration, 'unknown' when attribution failed.",
+      "title": "Speaker",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/SegmentKind"
+    },
+    "text": {
+      "description": "Text to synthesise, after TTS-safe cleaning.",
+      "title": "Text",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/SegmentStatus",
+      "default": "pending"
+    },
+    "audio_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Absolute path to the generated WAV file, set when status=done.",
+      "title": "Audio Path"
+    },
+    "retry_count": {
+      "default": 0,
+      "description": "Number of synthesis retries so far.",
+      "title": "Retry Count",
+      "type": "integer"
+    },
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "chapter",
+    "paragraph_id",
+    "speaker",
+    "kind",
+    "text"
+  ],
+  "title": "Segment",
+  "type": "object"
+}

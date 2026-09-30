@@ -1,0 +1,94 @@
+{
+  "$defs": {
+    "Character": {
+      "description": "One speaker in the book.\n\n``name`` is the canonical form used as the key everywhere.\n``aliases`` are alternative names that map to this character.\n``line_count`` is the number of segments attributed to this speaker \u2014\nused to sort the cast review screen by prominence.",
+      "properties": {
+        "name": {
+          "description": "Canonical character name.",
+          "title": "Name",
+          "type": "string"
+        },
+        "aliases": {
+          "description": "Other names that refer to this character.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Aliases",
+          "type": "array"
+        },
+        "line_count": {
+          "default": 0,
+          "description": "Number of segments attributed to this speaker.",
+          "title": "Line Count",
+          "type": "integer"
+        },
+        "voice": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VoiceRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Assigned voice.  None until the casting stage runs."
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "Character",
+      "type": "object"
+    },
+    "VoiceRef": {
+      "description": "A pointer to a voice in a specific TTS engine.\n\n``engine`` must match the adapter's self-reported name (e.g. ``\"xtts\"``,\n``\"vits\"``, ``\"fake\"``).  ``voice_id`` is engine-specific (e.g. a speaker\nindex for VITS, a speaker name for XTTS).",
+      "properties": {
+        "engine": {
+          "description": "TTS engine name: xtts | vits | fake",
+          "title": "Engine",
+          "type": "string"
+        },
+        "voice_id": {
+          "description": "Engine-specific voice identifier.",
+          "title": "Voice Id",
+          "type": "string"
+        },
+        "language": {
+          "default": "en",
+          "description": "BCP-47 language tag.",
+          "title": "Language",
+          "type": "string"
+        }
+      },
+      "required": [
+        "engine",
+        "voice_id"
+      ],
+      "title": "VoiceRef",
+      "type": "object"
+    }
+  },
+  "description": "The complete voice cast for one book.\n\nWritten to ``projects/<name>/cast.json`` by the casting agent and read by\nthe TTS agent.  The narrator is always present; characters are sorted by\n``line_count`` descending on the review screen.",
+  "properties": {
+    "narrator": {
+      "$ref": "#/$defs/Character",
+      "description": "The narrator character.  Always present."
+    },
+    "characters": {
+      "description": "Named characters, excluding the narrator.",
+      "items": {
+        "$ref": "#/$defs/Character"
+      },
+      "title": "Characters",
+      "type": "array"
+    },
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "title": "Cast",
+  "type": "object"
+}

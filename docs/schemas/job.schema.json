@@ -1,0 +1,91 @@
+{
+  "$defs": {
+    "ConversionMode": {
+      "description": "Hardware-tier selector chosen by the user at upload time.\n\nnarrator_only \u2014 single voice, no LLM; runs on the low-resource floor\n                (4 GB RAM / 2 GB VRAM, VITS engine).\nmulti_voice   \u2014 full pipeline with local LLM attribution; needs ~8 GB RAM.",
+      "enum": [
+        "narrator_only",
+        "multi_voice"
+      ],
+      "title": "ConversionMode",
+      "type": "string"
+    },
+    "StageStatus": {
+      "description": "Status of a single pipeline stage within a job.",
+      "enum": [
+        "pending",
+        "running",
+        "done",
+        "failed"
+      ],
+      "title": "StageStatus",
+      "type": "string"
+    }
+  },
+  "description": "One conversion job: from file upload to audiobook output.\n\n``id`` is a UUID generated when the job is created.\n``project_name`` maps to the folder ``projects/<project_name>/``.\n``current_stage`` is updated as each pipeline stage starts and finishes.",
+  "properties": {
+    "id": {
+      "description": "UUID.",
+      "title": "Id",
+      "type": "string"
+    },
+    "book_id": {
+      "description": "UUID of the Book being converted.",
+      "title": "Book Id",
+      "type": "string"
+    },
+    "project_name": {
+      "description": "Maps to projects/<project_name>/.",
+      "title": "Project Name",
+      "type": "string"
+    },
+    "mode": {
+      "$ref": "#/$defs/ConversionMode",
+      "default": "multi_voice"
+    },
+    "current_stage": {
+      "default": "ingest",
+      "description": "Name of the stage currently executing.",
+      "title": "Current Stage",
+      "type": "string"
+    },
+    "stage_status": {
+      "$ref": "#/$defs/StageStatus",
+      "default": "pending"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    },
+    "error": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Last error message, if any.",
+      "title": "Error"
+    },
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "book_id",
+    "project_name"
+  ],
+  "title": "Job",
+  "type": "object"
+}
