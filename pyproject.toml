@@ -33,6 +33,8 @@ dependencies = [
     "pypdf>=4.2",          # BSD-3 (metadata, scan detection)
     # Language identification (bundles its own model; works offline)
     "langdetect>=1.0.9",
+    # HTTP client — used by OllamaAttributor to call the local Ollama daemon
+    "httpx>=0.27",
     # Audio utilities (wraps FFmpeg)
     "pydub>=0.25",
     # M4B / MP3 tag writing — MIT alternative to mutagen (GPL)

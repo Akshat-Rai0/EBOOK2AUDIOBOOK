@@ -14,3 +14,7 @@
 | 2026-10-01 | **VITS-VCTK** (109-speaker, MIT) as low-resource multi-speaker fallback | Single-speaker VITS (cannot cast characters) | Multi-speaker required for character casting even in narrator-only+ mode |
 | 2026-10-01 | **`chapters_override.json` escape hatch** for chapter detection | Manual editing of book.json | User-facing; survives re-runs; per-project; JSON is student-readable |
 | 2026-10-01 | **`langdetect`** for language identification | `fasttext` LangID (MIT, faster) | Simpler install; bundles model; offline; fasttext is a future upgrade path |
+| 2026-10-01 | **`httpx`** for local Ollama HTTP client | `requests`; stdlib `urllib` | Modern sync+async API, excellent timeout handling, connection pooling |
+| 2026-10-01 | **Constrained JSON decoding (`format: "json"`)** for attribution | Raw prompt parsing; regex extraction | Ollama guarantees syntactically valid JSON at token level; eliminates JSON parsing errors |
+| 2026-10-01 | **`llama3.2:3b`** default model for attribution | `llama3.1:8b`; `mistral:7b` | Small memory footprint (~2.2 GB), fast CPU/MPS inference, fits in 8 GB RAM tier |
+| 2026-10-01 | **Significant token intersection** for alias merging in `CharacterRegistry` | Embedding similarity; edit distance | Zero-dependency, deterministic, fast, conservative (avoids false-positive merges) |

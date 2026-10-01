@@ -17,6 +17,7 @@
 | pdfplumber ≥ 0.11 | MIT | ✓ permissive; chosen over PyMuPDF (AGPL) |
 | pypdf ≥ 4.2 | BSD-3 | ✓ permissive |
 | langdetect ≥ 1.0.9 | Apache-2.0 | ✓ permissive |
+| httpx ≥ 0.27 | BSD-3 | ✓ permissive |
 | pydub ≥ 0.25 | MIT | ✓ permissive |
 | mediafile ≥ 0.12 | MIT | ✓ permissive; chosen over mutagen (GPL) |
 

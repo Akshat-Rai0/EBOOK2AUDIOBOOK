@@ -290,5 +290,159 @@ def convert(project: str, engine: str) -> None:
     click.echo(f"  Audio files: {project_dir / 'output'}")
 
 
+# ---------------------------------------------------------------------------
+# castbook attribute
+# ---------------------------------------------------------------------------
+
+
+@cli.command()
+@click.option(
+    "--project",
+    "-p",
+    required=True,
+    help="Project name in projects/<project>/ to attribute.",
+)
+@click.option(
+    "--model",
+    "-m",
+    default="llama3.2:3b",
+    show_default=True,
+    help="Ollama model tag to use for attribution (e.g. llama3.2:3b, mistral:7b).",
+)
+@click.option(
+    "--ollama-url",
+    default="http://localhost:11434",
+    show_default=True,
+    help="Base URL for the local Ollama daemon.",
+)
+@click.option(
+    "--override",
+    is_flag=True,
+    default=False,
+    help="Overwrite an existing attribution.json.",
+)
+def attribute(project: str, model: str, ollama_url: str, override: bool) -> None:
+    """
+    Run speaker attribution on projects/<project>/book.json using a local Ollama LLM.
+
+    Reads book.json, processes each paragraph that contains dialogue, and writes
+    projects/<project>/attribution.json with per-span speaker labels.
+
+    Ollama must be running before you call this command:
+        ollama serve
+
+    \\b
+    Example:
+        castbook attribute --project dracula --model llama3.2:3b
+    """
+    import json
+
+    from ebook2audiobook.attribution import AttributionError, CharacterRegistry, OllamaAttributor
+    from ebook2audiobook.models.book import Book
+
+    project_dir = Path("projects") / project
+    book_json_path = project_dir / "book.json"
+    attribution_path = project_dir / "attribution.json"
+
+    if not book_json_path.exists():
+        click.secho(
+            f"Error: {book_json_path} not found.\n"
+            f"Run 'castbook ingest <file> --project {project}' first.",
+            fg="red",
+        )
+        sys.exit(1)
+
+    if attribution_path.exists() and not override:
+        click.echo(
+            f"attribution.json already exists at '{attribution_path}'. Use --override to re-run."
+        )
+        return
+
+    book = Book.model_validate_json(book_json_path.read_text(encoding="utf-8"))
+    registry = CharacterRegistry()
+
+    click.echo(f"  Book     : {book.title}")
+    click.echo(f"  Chapters : {book.chapter_count}")
+    click.echo(f"  Model    : {model}")
+    click.echo(f"  Ollama   : {ollama_url}")
+    click.echo("")
+
+    try:
+        attributor = OllamaAttributor(model=model, base_url=ollama_url)
+    except AttributionError as exc:
+        click.secho(f"\n✗ {exc}", fg="red")
+        sys.exit(1)
+
+    attributed_chapters = []
+    total_spans = 0
+    unknown_spans = 0
+
+    for ch_idx, chapter in enumerate(book.chapters):
+        ch_title = chapter.title or f"Chapter {ch_idx + 1}"
+        click.echo(f"  Chapter {ch_idx + 1}/{book.chapter_count}: {ch_title}")
+
+        attributed_paragraphs = []
+        context = ""
+        cast_so_far = registry.character_names()
+
+        for para in chapter.paragraphs:
+            spans = attributor.attribute(
+                paragraph=para.text,
+                cast_so_far=cast_so_far,
+                context=context,
+            )
+            # Register all speakers with the registry.
+            for span in spans:
+                speaker = registry.resolve(span["speaker"])
+                span["speaker"] = speaker
+                registry.record_mention(speaker)
+
+            attributed_paragraphs.append(
+                {
+                    "paragraph_id": para.id,
+                    "spans": spans,
+                }
+            )
+            total_spans += len(spans)
+            unknown_spans += sum(1 for s in spans if s["speaker"] == "unknown")
+            # Last paragraph becomes context for the next call.
+            context = para.text
+            # Update cast list after each paragraph.
+            cast_so_far = registry.character_names()
+
+        attributed_chapters.append(
+            {
+                "chapter_index": ch_idx,
+                "title": chapter.title,
+                "paragraphs": attributed_paragraphs,
+            }
+        )
+
+    result = {
+        "book_title": book.title,
+        "model": model,
+        "characters": registry.summary(),
+        "chapters": attributed_chapters,
+        "stats": {
+            "total_spans": total_spans,
+            "unknown_spans": unknown_spans,
+            "unknown_pct": round(unknown_spans / total_spans * 100, 1) if total_spans else 0.0,
+        },
+    }
+
+    attribution_path.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    click.echo("")
+    click.secho("✓ Attribution complete!", fg="green")
+    click.echo(f"  Characters found : {len(registry.character_names())}")
+    click.echo(f"  Total spans      : {total_spans}")
+    if unknown_spans:
+        click.secho(
+            f"  Unknown spans    : {unknown_spans} — review attribution.json to assign voices.",
+            fg="yellow",
+        )
+    click.echo(f"  attribution.json → {attribution_path}")
+
+
 if __name__ == "__main__":
     cli()
