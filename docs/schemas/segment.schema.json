@@ -10,6 +10,16 @@
       "title": "SegmentKind",
       "type": "string"
     },
+    "SegmentSource": {
+      "description": "Origin of the speaker attribution assignment.",
+      "enum": [
+        "llm",
+        "rule",
+        "user"
+      ],
+      "title": "SegmentSource",
+      "type": "string"
+    },
     "SegmentStatus": {
       "description": "Processing status stored in state.sqlite and mirrored in segments.json.\n\nThink of it like a to-do list: pending \u2192 in progress (running) \u2192 done or\nfailed.  A failed segment is retried up to two times, then marked skipped\nso the rest of the book can still be produced.",
       "enum": [
@@ -23,7 +33,7 @@
       "type": "string"
     }
   },
-  "description": "One unit of speech: text + speaker + kind + processing state.\n\nThe TTS agent reads ``text``, looks up the voice for ``speaker`` in the\nCast, and writes a WAV file to ``audio_path``.",
+  "description": "One unit of speech: text + speaker + kind + processing state.\n\nThe TTS agent reads ``text``, looks up the voice for ``speaker_id`` in the\nCast, and writes a WAV file to ``audio_path``.",
   "properties": {
     "id": {
       "description": "Stable identifier: c<CC>-p<PPP>-s<SS>",
@@ -40,13 +50,60 @@
       "title": "Paragraph Id",
       "type": "string"
     },
+    "speaker_id": {
+      "default": "narrator",
+      "description": "Canonical character identifier or 'narrator' / 'unknown'.",
+      "title": "Speaker Id",
+      "type": "string"
+    },
     "speaker": {
-      "description": "Canonical speaker name.  Use 'narrator' for narration, 'unknown' when attribution failed.",
+      "default": "narrator",
+      "description": "Legacy alias for speaker_id.",
       "title": "Speaker",
       "type": "string"
     },
     "kind": {
-      "$ref": "#/$defs/SegmentKind"
+      "$ref": "#/$defs/SegmentKind",
+      "default": "narration"
+    },
+    "confidence": {
+      "default": 1.0,
+      "description": "Attribution confidence (0.0 to 1.0).",
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Confidence",
+      "type": "number"
+    },
+    "source": {
+      "$ref": "#/$defs/SegmentSource",
+      "default": "rule",
+      "description": "Origin: llm, rule, or user."
+    },
+    "evidence": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional short rationale or snippet from attribution.",
+      "title": "Evidence"
+    },
+    "voice_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "SHA-256 hash of text + voice_id for cache validation.",
+      "title": "Voice Hash"
     },
     "text": {
       "description": "Text to synthesise, after TTS-safe cleaning.",
@@ -77,7 +134,7 @@
       "type": "integer"
     },
     "schema_version": {
-      "default": "1.0",
+      "default": "1.1",
       "title": "Schema Version",
       "type": "string"
     }
@@ -86,8 +143,6 @@
     "id",
     "chapter",
     "paragraph_id",
-    "speaker",
-    "kind",
     "text"
   ],
   "title": "Segment",

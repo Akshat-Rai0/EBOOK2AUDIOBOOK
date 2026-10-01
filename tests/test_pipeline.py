@@ -13,7 +13,7 @@ import pytest
 from ebook2audiobook.audio.processor import AudioProcessor
 from ebook2audiobook.models.book import Book, Chapter, Paragraph
 from ebook2audiobook.models.job import ConversionMode, Job, StageStatus
-from ebook2audiobook.models.segment import Segment, SegmentKind, SegmentStatus
+from ebook2audiobook.models.segment import Segment, SegmentKind, SegmentSource, SegmentStatus
 from ebook2audiobook.orchestrator.pipeline import PipelineOrchestrator
 from ebook2audiobook.store.db import JobDatabase
 from ebook2audiobook.tts.fake_tts import FakeTTS
@@ -118,6 +118,82 @@ class TestJobDatabase:
         stats = db.get_stats()
         assert stats["done"] == 1
         assert stats["pending"] == 1
+
+    def test_user_locked_segments_not_overwritten(self, tmp_path: Path):
+        db = JobDatabase(tmp_path / "state.sqlite")
+        db.init_schema()
+
+        # Initial segment manually set by user
+        user_seg = Segment(
+            id="c00-p000-s00",
+            chapter=0,
+            paragraph_id="c00-p000",
+            speaker_id="Mira",
+            kind=SegmentKind.DIALOGUE,
+            text="I found it.",
+            source=SegmentSource.USER,
+            status=SegmentStatus.PENDING,
+        )
+        db.register_segments([user_seg])
+
+        # Attempt automated re-registration
+        auto_seg = Segment(
+            id="c00-p000-s00",
+            chapter=0,
+            paragraph_id="c00-p000",
+            speaker_id="narrator",
+            kind=SegmentKind.NARRATION,
+            text="Overwritten text?",
+            source=SegmentSource.LLM,
+            status=SegmentStatus.PENDING,
+        )
+        db.register_segments([auto_seg])
+
+        # Verify user edit was authoritative and preserved
+        loaded = db.get_segment("c00-p000-s00")
+        assert loaded is not None
+        assert loaded.speaker_id == "Mira"
+        assert loaded.source == SegmentSource.USER
+        assert loaded.text == "I found it."
+
+    def test_schema_migration_adds_m4_columns(self, tmp_path: Path):
+        import sqlite3
+
+        db_path = tmp_path / "legacy.sqlite"
+        # Create legacy M2 table without M4 columns
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            """
+            CREATE TABLE segments (
+                id TEXT PRIMARY KEY,
+                chapter INTEGER NOT NULL,
+                paragraph_id TEXT NOT NULL,
+                speaker TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                text TEXT NOT NULL,
+                status TEXT NOT NULL,
+                audio_path TEXT,
+                retry_count INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        # Run JobDatabase init_schema on legacy DB
+        db = JobDatabase(db_path)
+        db.init_schema()
+
+        # Verify columns exist
+        with db._connection() as c:
+            cols = {row[1] for row in c.execute("PRAGMA table_info(segments);").fetchall()}
+            assert "speaker_id" in cols
+            assert "confidence" in cols
+            assert "source" in cols
+            assert "evidence" in cols
+            assert "voice_hash" in cols
 
 
 class TestAudioProcessor:

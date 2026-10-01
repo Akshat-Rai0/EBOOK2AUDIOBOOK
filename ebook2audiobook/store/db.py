@@ -24,7 +24,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ebook2audiobook.models.job import ConversionMode, Job, StageStatus
-from ebook2audiobook.models.segment import Segment, SegmentKind, SegmentStatus
+from ebook2audiobook.models.segment import Segment, SegmentKind, SegmentSource, SegmentStatus
 
 
 class JobDatabase:
@@ -81,8 +81,13 @@ class JobDatabase:
                     chapter INTEGER NOT NULL,
                     paragraph_id TEXT NOT NULL,
                     speaker TEXT NOT NULL,
+                    speaker_id TEXT NOT NULL DEFAULT 'narrator',
                     kind TEXT NOT NULL,
                     text TEXT NOT NULL,
+                    confidence REAL NOT NULL DEFAULT 1.0,
+                    source TEXT NOT NULL DEFAULT 'rule',
+                    evidence TEXT,
+                    voice_hash TEXT,
                     status TEXT NOT NULL,
                     audio_path TEXT,
                     retry_count INTEGER NOT NULL DEFAULT 0,
@@ -101,10 +106,35 @@ class JobDatabase:
                     started_at TEXT NOT NULL,
                     completed_at TEXT,
                     error TEXT,
+                    metadata TEXT,
                     FOREIGN KEY(job_id) REFERENCES job(id)
                 );
                 """
             )
+            # Automatic schema migration for existing databases
+            cols = {row["name"] for row in conn.execute("PRAGMA table_info(segments);").fetchall()}
+            if "speaker_id" not in cols:
+                conn.execute(
+                    "ALTER TABLE segments ADD COLUMN speaker_id TEXT NOT NULL DEFAULT 'narrator';"
+                )
+            if "confidence" not in cols:
+                conn.execute(
+                    "ALTER TABLE segments ADD COLUMN confidence REAL NOT NULL DEFAULT 1.0;"
+                )
+            if "source" not in cols:
+                conn.execute("ALTER TABLE segments ADD COLUMN source TEXT NOT NULL DEFAULT 'rule';")
+            if "evidence" not in cols:
+                conn.execute("ALTER TABLE segments ADD COLUMN evidence TEXT;")
+            if "voice_hash" not in cols:
+                conn.execute("ALTER TABLE segments ADD COLUMN voice_hash TEXT;")
+
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_segments_speaker ON segments(speaker_id);")
+
+            stage_cols = {
+                row["name"] for row in conn.execute("PRAGMA table_info(stages);").fetchall()
+            }
+            if "metadata" not in stage_cols:
+                conn.execute("ALTER TABLE stages ADD COLUMN metadata TEXT;")
 
     # ------------------------------------------------------------------
     # Job CRUD
@@ -163,9 +193,9 @@ class JobDatabase:
 
     def register_segments(self, segments: list[Segment]) -> None:
         """
-        Register initial segments in bulk with status=PENDING.
+        Register initial segments in bulk.
 
-        Ignores segments that already exist so this is safe to call on resume.
+        User-locked segments (source='user') are NEVER overwritten.
         """
         now = datetime.utcnow().isoformat()
         records = [
@@ -174,8 +204,13 @@ class JobDatabase:
                 s.chapter,
                 s.paragraph_id,
                 s.speaker,
+                s.speaker_id,
                 s.kind.value,
                 s.text,
+                s.confidence,
+                s.source.value,
+                s.evidence,
+                s.voice_hash,
                 s.status.value,
                 s.audio_path,
                 s.retry_count,
@@ -187,10 +222,24 @@ class JobDatabase:
         with self._connection() as conn:
             conn.executemany(
                 """
-                INSERT OR IGNORE INTO segments (
-                    id, chapter, paragraph_id, speaker, kind, text,
-                    status, audio_path, retry_count, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                INSERT INTO segments (
+                    id, chapter, paragraph_id, speaker, speaker_id, kind, text,
+                    confidence, source, evidence, voice_hash, status, audio_path,
+                    retry_count, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    chapter = excluded.chapter,
+                    paragraph_id = excluded.paragraph_id,
+                    speaker = excluded.speaker,
+                    speaker_id = excluded.speaker_id,
+                    kind = excluded.kind,
+                    text = excluded.text,
+                    confidence = excluded.confidence,
+                    source = excluded.source,
+                    evidence = excluded.evidence,
+                    voice_hash = excluded.voice_hash,
+                    updated_at = excluded.updated_at
+                WHERE segments.source != 'user';
                 """,
                 records,
             )
@@ -258,6 +307,25 @@ class JobDatabase:
                     (status.value, now, segment_id),
                 )
 
+    def update_segment_speaker(
+        self,
+        segment_id: str,
+        speaker_id: str,
+        source: SegmentSource = SegmentSource.USER,
+        confidence: float = 1.0,
+    ) -> None:
+        """Update a segment's speaker assignment. Defaults to source=user (authoritative)."""
+        now = datetime.utcnow().isoformat()
+        with self._connection() as conn:
+            conn.execute(
+                """
+                UPDATE segments
+                SET speaker_id = ?, speaker = ?, source = ?, confidence = ?, updated_at = ?
+                WHERE id = ?;
+                """,
+                (speaker_id, speaker_id, source.value, confidence, now, segment_id),
+            )
+
     def get_stats(self) -> dict[str, int]:
         """Return counts of segments grouped by status."""
         with self._connection() as conn:
@@ -276,12 +344,28 @@ class JobDatabase:
 
     @staticmethod
     def _row_to_segment(row: sqlite3.Row) -> Segment:
+        row_keys = row.keys()
+        speaker_id = row["speaker_id"] if "speaker_id" in row_keys else row["speaker"]
+        confidence = (
+            float(row["confidence"])
+            if "confidence" in row_keys and row["confidence"] is not None
+            else 1.0
+        )
+        source_val = row["source"] if "source" in row_keys and row["source"] is not None else "rule"
+        evidence = row["evidence"] if "evidence" in row_keys else None
+        voice_hash = row["voice_hash"] if "voice_hash" in row_keys else None
+
         return Segment(
             id=row["id"],
             chapter=row["chapter"],
             paragraph_id=row["paragraph_id"],
             speaker=row["speaker"],
+            speaker_id=speaker_id,
             kind=SegmentKind(row["kind"]),
+            confidence=confidence,
+            source=SegmentSource(source_val),
+            evidence=evidence,
+            voice_hash=voice_hash,
             text=row["text"],
             status=SegmentStatus(row["status"]),
             audio_path=row["audio_path"],

@@ -11,11 +11,13 @@ from ebook2audiobook.models import (
     Cast,
     Chapter,
     Character,
+    CharacterProfile,
     ConversionMode,
     Job,
     Paragraph,
     Segment,
     SegmentKind,
+    SegmentSource,
     SegmentStatus,
     StageStatus,
     VoiceRef,
@@ -111,6 +113,27 @@ class TestSegment:
         assert SegmentKind.NARRATION == "narration"
         assert SegmentKind.THOUGHT == "thought"
 
+    def test_m4_segment_fields(self):
+        s = Segment(
+            id="c00-p000-s0",
+            chapter=0,
+            paragraph_id="c00-p000",
+            speaker_id="mira",
+            kind=SegmentKind.DIALOGUE,
+            text="I found it.",
+            confidence=0.95,
+            source=SegmentSource.USER,
+            evidence="attributed by user in review",
+            voice_hash="abc123hash",
+        )
+        assert s.speaker_id == "mira"
+        assert s.speaker == "mira"  # synchronized
+        assert s.confidence == 0.95
+        assert s.source == SegmentSource.USER
+        assert s.is_user_locked is True
+        assert s.evidence == "attributed by user in review"
+        assert s.voice_hash == "abc123hash"
+
 
 # ---------------------------------------------------------------------------
 # Cast / Character / VoiceRef
@@ -135,6 +158,22 @@ class TestCharacter:
         c = Character(name="narrator")
         assert c.matches("narrator")
         assert c.matches("NARRATOR")
+
+    def test_m4_character_fields_and_defaults(self):
+        c = Character(
+            name="Mira Vane",
+            profile=CharacterProfile(gender="female", gender_confidence=0.9, age_bracket="adult"),
+            first_chapter=2,
+            user_locked=True,
+            voice_assignments={"xtts": "Daisy Studious", "vits": "p225"},
+        )
+        assert c.id == "mira_vane"
+        assert c.display_name == "Mira Vane"
+        assert c.profile.gender == "female"
+        assert c.profile.age_bracket == "adult"
+        assert c.first_chapter == 2
+        assert c.user_locked is True
+        assert c.voice_assignments["xtts"] == "Daisy Studious"
 
 
 class TestCast:

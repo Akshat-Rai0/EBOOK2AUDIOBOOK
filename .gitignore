@@ -31,7 +31,7 @@ projects/
 htmlcov/
 
 # Models (large binary files downloaded at runtime)
-models/
+/models/
 
 # Logs
 *.log
