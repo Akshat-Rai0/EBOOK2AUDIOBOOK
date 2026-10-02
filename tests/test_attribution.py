@@ -392,6 +392,62 @@ class TestCharacterRegistry:
         names = {e["canonical_name"] for e in summary}
         assert {"narrator", "unknown", "Mira"}.issubset(names)
 
+    def test_manual_merge_and_undo(self, tmp_path: Path):
+        """User can merge two characters and undo the merge."""
+        reg = CharacterRegistry()
+        reg.resolve("Tomas")
+        reg.resolve("Thomas")
+        reg.record_mention("Tomas")
+        reg.record_mention("Thomas")
+
+        # Explicit manual merge
+        merged = reg.manual_merge("Thomas", "Tomas")
+        assert merged is True
+        assert "Thomas" not in reg.character_names()
+        assert reg.resolve("Thomas") == "Tomas"
+
+        # Save and reload history
+        hist_path = tmp_path / "merge_history.json"
+        reg.save_history(hist_path)
+        assert hist_path.exists()
+
+        reg2 = CharacterRegistry()
+        reg2.load_history(hist_path)
+        assert len(reg2._merge_history) == 1
+
+        # Undo merge
+        undone = reg.undo()
+        assert undone is not None
+        assert undone.source_name == "Thomas"
+        assert "Thomas" in reg.character_names()
+        assert reg.resolve("Thomas") == "Thomas"
+
+    def test_ambiguity_guard_shared_surname_not_auto_merged(self):
+        """If incoming name matches multiple characters with shared surname, do not auto-merge."""
+        reg = CharacterRegistry()
+        reg.resolve("John Smith")
+        reg.resolve("Jane Smith")
+
+        # Incoming ambiguous "Smith" matches both
+        canon = reg.resolve("Smith")
+        # Should NOT merge with John or Jane; stays as separate entry "Smith"
+        assert canon == "Smith"
+        ambiguities = reg.flagged_ambiguities()
+        assert len(ambiguities) >= 1
+        assert ambiguities[0]["name"] == "smith"
+
+    def test_ambiguity_guard_standalone_title(self):
+        """Generic standalone titles like 'the Captain' are flagged and not merged with
+        Captain Miller.
+        """
+        reg = CharacterRegistry()
+        reg.resolve("Captain Miller")
+
+        canon = reg.resolve("the Captain")
+        assert canon == "the Captain"
+        ambiguities = reg.flagged_ambiguities()
+        assert any(a["name"] == "the captain" for a in ambiguities)
+
 
 # ---------------------------------------------------------------------------
 # 90% accuracy gate — synthetic test passage
