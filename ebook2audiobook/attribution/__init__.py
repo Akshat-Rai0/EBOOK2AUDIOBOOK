@@ -7,6 +7,7 @@ from ebook2audiobook.attribution.character_registry import (
     build_registry,
 )
 from ebook2audiobook.attribution.ollama_attributor import OllamaAttributor
+from ebook2audiobook.attribution.profiler import CharacterProfiler
 from ebook2audiobook.attribution.stage import AttributionStage
 
 __all__ = [
@@ -14,6 +15,7 @@ __all__ = [
     "AttributionError",
     "AttributionStage",
     "CharacterEntry",
+    "CharacterProfiler",
     "CharacterRegistry",
     "OllamaAttributor",
     "build_registry",
