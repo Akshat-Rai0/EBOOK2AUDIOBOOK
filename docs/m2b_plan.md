@@ -1,8 +1,8 @@
 # M2b plan: real TTS engines, ModelManager, benchmark, loudness
 
-**Milestone:** M2b (real synthesis on top of the M2 narrator pipeline)  
-**Branch:** `m2b-real-tts` (created 2026-10-03 from `m4-casting-multivoice` after the profiler and registry commits)  
-**Status:** DRAFT — awaiting approval before code  
+**Milestone:** M2b (real synthesis on top of the M2 narrator pipeline)
+**Branch:** `m2b-real-tts` (created 2026-10-03 from `m4-casting-multivoice` after the profiler and registry commits)
+**Status:** IN PROGRESS — core implementation complete, benchmark/loudness pending approval
 **Machine (target):** Apple Silicon, 16 GB unified memory, CPU or MPS
 
 This plan is the Week 6 TTS evaluation from `docs/project_document.md`, implemented against the existing M2 pipeline. It does **not** implement M4 casting, multi-voice synthesis, or the web UI.
@@ -295,7 +295,23 @@ AGENTS.md currently says FakeTTS is the only engine in tests. We keep that for *
 
 ## 12. Docs and follow-up commits (after approval, listed order)
 
-Matches the requested commit sequence: extras → ModelManager → VITS → XTTS → convert wiring → normaliser/chunking → bench → loudness harness (stop) → chosen loudness → full-book script → tests if not already included → docs → separate `datetime.utcnow()` → timezone-aware (`datetime.now(UTC)`) in store + attribution.
+Matches the requested commit sequence:
+
+- [x] extras → pyproject.toml [tts] optional dependency group
+- [x] ModelManager → singleton, load/unload, Ollama eviction, tests
+- [x] VITS → adapter with list_voices(), narrator mapping, tests
+- [x] XTTS → adapter with latent cache, MPS fallback, tests
+- [x] convert wiring → factory integration, CLI --engine option
+- [x] normaliser/chunking → synthesis normaliser, enhanced split_to_chunks
+- [x] Contract tests → FakeTTS always, VITS/XTTS with @pytest.mark.models
+- [x] ModelManager integration → factory check, AttributionStage unload_ollama
+- [ ] benchmark → script created, ran once (awaiting approval for final version)
+- [ ] loudness harness → stop for user decision on A/B/C
+- [ ] chosen loudness → implementation after decision
+- [ ] full-book script → end-to-end test with resume verification
+- [ ] doctor updates → lame/aac encoder flags
+- [ ] docs → DECISIONS.md, LICENSES.md updates
+- [ ] datetime → separate datetime.utcnow() → timezone-aware (future work)
 
 README still says “Quick start (M0/M1)” and describes real XTTS/VITS synthesis as if it existed. Update after wiring.
 
