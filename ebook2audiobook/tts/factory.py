@@ -39,7 +39,9 @@ def get_engine(
         Ignored for FakeTTS.
     model_manager:
         Optional ModelManager instance for coordinating model loading.
-        If None, engines will load models directly (not recommended for production).
+        If provided, the engine will check if a different model is already loaded
+        and raise an error. The caller is responsible for using ModelManager.load()
+        to actually load the model.
 
     Returns
     -------
@@ -52,6 +54,8 @@ def get_engine(
         If the engine is not available or model weights are missing.
     ValueError
         If the engine name is unknown.
+    RuntimeError
+        If ModelManager indicates a different model is already loaded.
     """
     if name == "fake":
         return FakeTTS()
@@ -60,6 +64,12 @@ def get_engine(
         try:
             from ebook2audiobook.tts.vits import VITS
 
+            if model_manager is not None:
+                if model_manager.loaded_model_name and model_manager.loaded_model_name != "vits":
+                    raise RuntimeError(
+                        f"Cannot load VITS: {model_manager.loaded_model_name} is already loaded. "
+                        f"Unload the current model first."
+                    )
             return VITS(device=device)
         except ImportError as exc:
             raise TTSError(
@@ -70,6 +80,12 @@ def get_engine(
         try:
             from ebook2audiobook.tts.xtts import XTTS
 
+            if model_manager is not None:
+                if model_manager.loaded_model_name and model_manager.loaded_model_name != "xtts":
+                    raise RuntimeError(
+                        f"Cannot load XTTS: {model_manager.loaded_model_name} is already loaded. "
+                        f"Unload the current model first."
+                    )
             return XTTS(device=device)
         except ImportError as exc:
             raise TTSError(
