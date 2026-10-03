@@ -64,7 +64,6 @@ _ACRONYMS = {
     "CNN",
     "CIA",
     "FBI",
-    "NASA",
     "RAM",
     "CPU",
     "GPU",

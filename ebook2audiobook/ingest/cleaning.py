@@ -205,8 +205,11 @@ def split_to_chunks(text: str, max_chars: int) -> list[str]:
     the middle of a word, the audio sounds cut off.  Splitting at sentence
     boundaries produces natural pauses and complete utterances.
 
-    If a single sentence exceeds *max_chars* it is included as-is with a
-    warning logged — the TTS engine will handle (or truncate) it.
+    **In-sentence splitting (enhanced):**
+    If a single sentence exceeds *max_chars*, it is split at the punctuation
+    mark nearest the middle (`, ; : — ( ) [ ]`), then at spaces if no
+    punctuation exists. Never splits mid-word. Logs a warning when a
+    mid-sentence split occurs.
 
     Parameters
     ----------
@@ -218,8 +221,7 @@ def split_to_chunks(text: str, max_chars: int) -> list[str]:
     Returns
     -------
     list[str]
-        Ordered list of text chunks, each ≤ *max_chars* characters
-        (except oversized single sentences).
+        Ordered list of text chunks, each ≤ *max_chars* characters.
     """
     import logging
 
@@ -243,15 +245,106 @@ def split_to_chunks(text: str, max_chars: int) -> list[str]:
         else:
             if current:
                 chunks.append(current)
+            # Handle oversized sentence
             if len(sentence) > max_chars:
-                logger.warning(
-                    "Sentence (%d chars) exceeds max_chars=%d; including as-is.",
-                    len(sentence),
-                    max_chars,
-                )
-            current = sentence
+                sub_chunks = _split_oversized_sentence(sentence, max_chars, logger)
+                chunks.extend(sub_chunks)
+            else:
+                current = sentence
 
     if current:
         chunks.append(current)
 
     return chunks
+
+
+def _split_oversized_sentence(text: str, max_chars: int, logger) -> list[str]:
+    """
+    Split an oversized sentence at punctuation nearest the middle, then spaces.
+
+    Split order: `, ; : — ( ) [ ]` then spaces. Never mid-word.
+    Logs a warning when splitting occurs.
+
+    Parameters
+    ----------
+    text:
+        Oversized sentence.
+    max_chars:
+        Maximum length per chunk.
+    logger:
+        Logger instance for warnings.
+
+    Returns
+    -------
+    list[str]
+        List of chunks, each ≤ max_chars.
+    """
+    logger.warning(
+        "Sentence (%d chars) exceeds max_chars=%d; splitting in-sentence.",
+        len(text),
+        max_chars,
+    )
+
+    # Try splitting at punctuation nearest the middle
+    punct_chars = [",", ";", ":", "—", "(", ")", "[", "]"]
+    mid = len(text) // 2
+
+    # Find the punctuation mark closest to the middle
+    best_split_idx = -1
+    best_dist = len(text)
+
+    for i, char in enumerate(text):
+        if char in punct_chars:
+            dist = abs(i - mid)
+            if dist < best_dist:
+                best_dist = dist
+                best_split_idx = i
+
+    if best_split_idx != -1:
+        # Split at the punctuation
+        part1 = text[: best_split_idx + 1].strip()
+        part2 = text[best_split_idx + 1 :].strip()
+        if part1 and part2:
+            if len(part1) <= max_chars and len(part2) <= max_chars:
+                return [part1, part2]
+            # If one part is still too large, recurse
+            if len(part1) > max_chars:
+                return _split_oversized_sentence(part1, max_chars, logger) + [part2]
+            if len(part2) > max_chars:
+                return [part1] + _split_oversized_sentence(part2, max_chars, logger)
+
+    # No suitable punctuation found, split at spaces
+    # Find the space nearest the middle
+    space_split_idx = -1
+    best_dist = len(text)
+
+    for i, char in enumerate(text):
+        if char == " ":
+            dist = abs(i - mid)
+            if dist < best_dist:
+                best_dist = dist
+                space_split_idx = i
+
+    if space_split_idx != -1:
+        part1 = text[:space_split_idx].strip()
+        part2 = text[space_split_idx + 1 :].strip()
+        if part1 and part2:
+            if len(part1) <= max_chars and len(part2) <= max_chars:
+                return [part1, part2]
+            # Recurse if needed
+            if len(part1) > max_chars:
+                return _split_oversized_sentence(part1, max_chars, logger) + [part2]
+            if len(part2) > max_chars:
+                return [part1] + _split_oversized_sentence(part2, max_chars, logger)
+
+    # No spaces either - hard split at max_chars (last resort)
+    logger.error(
+        "No punctuation or spaces found in sentence; hard-splitting at %d chars.",
+        max_chars,
+    )
+    part1 = text[:max_chars]
+    part2 = text[max_chars:]
+    # Recurse on part2 if it's still too large
+    if len(part2) > max_chars:
+        return [part1] + _split_oversized_sentence(part2, max_chars, logger)
+    return [part1, part2]

@@ -111,6 +111,7 @@ class PipelineOrchestrator:
         Convert chapters & paragraphs of a book into sequential narrator segments.
 
         Respects the TTS engine's ``max_chars`` limit by splitting sentences if needed.
+        Uses stable sub-ids (s00, s01, s02) for sentences, and (s00a, s00b) for split pieces.
         """
         segments: list[Segment] = []
         for ch in book.chapters:
@@ -120,7 +121,8 @@ class PipelineOrchestrator:
                 for sent in sentences:
                     # Break sentence down if it exceeds the engine limit
                     chunks = split_to_chunks(sent, max_chars=self.tts.max_chars)
-                    for chunk in chunks:
+                    if len(chunks) == 1:
+                        # No split needed
                         seg_id = f"{para.id}-s{sub_idx:02d}"
                         segments.append(
                             Segment(
@@ -129,10 +131,27 @@ class PipelineOrchestrator:
                                 paragraph_id=para.id,
                                 speaker="narrator",
                                 kind=SegmentKind.NARRATION,
-                                text=chunk,
+                                text=chunks[0],
                                 status=SegmentStatus.PENDING,
                             )
                         )
+                        sub_idx += 1
+                    else:
+                        # Sentence was split - use letter suffixes (s00a, s00b, s00c)
+                        for chunk_idx, chunk in enumerate(chunks):
+                            suffix = chr(ord("a") + chunk_idx)
+                            seg_id = f"{para.id}-s{sub_idx:02d}{suffix}"
+                            segments.append(
+                                Segment(
+                                    id=seg_id,
+                                    chapter=ch.index,
+                                    paragraph_id=para.id,
+                                    speaker="narrator",
+                                    kind=SegmentKind.NARRATION,
+                                    text=chunk,
+                                    status=SegmentStatus.PENDING,
+                                )
+                            )
                         sub_idx += 1
         return segments
 
@@ -159,7 +178,15 @@ class PipelineOrchestrator:
 
             out_wav = self.audio_dir / f"{seg.id}.wav"
             try:
-                wav_bytes = self.tts.synthesize(seg.text, voice)
+                # Normalise text for synthesis (if not FakeTTS)
+                if self.tts.engine_name != "fake":
+                    from ebook2audiobook.tts.normalise import normalise_for_synthesis
+
+                    text_to_synth = normalise_for_synthesis(seg.text)
+                else:
+                    text_to_synth = seg.text
+
+                wav_bytes = self.tts.synthesize(text_to_synth, voice)
                 out_wav.write_bytes(wav_bytes)
                 self.db.update_segment_status(seg.id, SegmentStatus.DONE, audio_path=str(out_wav))
                 done_count += 1
@@ -193,7 +220,9 @@ class PipelineOrchestrator:
             raw_ch_wav = self.audio_dir / f"chapter_{ch.index + 1:02d}_raw.wav"
             norm_ch_wav = self.audio_dir / f"chapter_{ch.index + 1:02d}.wav"
 
-            self.processor.assemble_chapter_wav(ch_segments, raw_ch_wav)
+            self.processor.assemble_chapter_wav(
+                ch_segments, raw_ch_wav, split_pause_ms=150
+            )
             self.processor.normalize_loudness(raw_ch_wav, norm_ch_wav)
 
             # Calculate duration in seconds

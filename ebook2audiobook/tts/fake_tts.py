@@ -76,9 +76,16 @@ class FakeTTS(TTSEngine):
     def list_voices(self) -> list[dict]:
         return list(self._FAKE_VOICES)
 
-    def synthesize(self, text: str, voice: VoiceRef) -> bytes:
+    def synthesize(self, text: str, voice: str | VoiceRef) -> bytes:
         """
         Generate WAV bytes for *text* (silence or tone, no actual speech).
+
+        Parameters
+        ----------
+        text:
+            Text to synthesize (not actually spoken).
+        voice:
+            VoiceRef or string speaker ID (ignored by FakeTTS).
 
         The duration approximates real speech: 100 ms per word, minimum 200 ms.
         """

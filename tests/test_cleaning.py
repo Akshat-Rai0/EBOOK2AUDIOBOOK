@@ -158,12 +158,59 @@ class TestSplitToChunks:
         assert chunks[0] == sentence_a
         assert chunks[1] == sentence_b
 
-    def test_oversized_sentence_included(self):
-        """A sentence longer than max_chars must still be included."""
-        long_sent = "A" * 300 + "."
+    def test_oversized_sentence_split(self):
+        """A sentence longer than max_chars is now split at punctuation or spaces."""
+        # Split at comma
+        long_sent = "A" * 50 + ", " + "B" * 50 + ", " + "C" * 50 + "."
         chunks = split_to_chunks(long_sent, max_chars=100)
-        assert len(chunks) == 1
-        assert chunks[0] == long_sent
+        assert len(chunks) > 1
+        # Each chunk should be ≤ max_chars
+        for chunk in chunks:
+            assert len(chunk) <= 100
+
+    def test_split_at_comma_nearest_middle(self):
+        """Split at punctuation mark nearest the middle."""
+        text = "A" * 40 + ", " + "B" * 40 + ", " + "C" * 40 + "."
+        chunks = split_to_chunks(text, max_chars=100)
+        # Should split at one of the commas
+        assert len(chunks) == 2
+        for chunk in chunks:
+            assert len(chunk) <= 100
+
+    def test_split_at_em_dash(self):
+        """Split at em-dash."""
+        text = "A" * 60 + "—" + "B" * 60 + "."
+        chunks = split_to_chunks(text, max_chars=100)
+        assert len(chunks) == 2
+        for chunk in chunks:
+            assert len(chunk) <= 100
+
+    def test_split_at_brackets(self):
+        """Split at brackets."""
+        text = "A" * 40 + " ( " + "B" * 40 + " ) " + "C" * 40 + "."
+        chunks = split_to_chunks(text, max_chars=100)
+        assert len(chunks) > 1
+        for chunk in chunks:
+            assert len(chunk) <= 100
+
+    def test_split_at_spaces_fallback(self):
+        """Split at spaces when no punctuation exists."""
+        text = "A" * 50 + " " + "B" * 50 + " " + "C" * 50
+        chunks = split_to_chunks(text, max_chars=100)
+        assert len(chunks) > 1
+        for chunk in chunks:
+            assert len(chunk) <= 100
+
+    def test_never_mid_word_split(self):
+        """Never split in the middle of a word."""
+        # Long word without spaces should hard-split at max_chars and recurse
+        text = "A" * 300
+        chunks = split_to_chunks(text, max_chars=100)
+        # Hard-split produces 3 chunks (100, 100, 100)
+        assert len(chunks) == 3
+        # Each chunk should be exactly max_chars or less
+        for chunk in chunks:
+            assert len(chunk) <= 100
 
     def test_empty_text(self):
         assert split_to_chunks("", max_chars=100) == []

@@ -13,6 +13,7 @@ Later milestones will add:
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -225,10 +226,16 @@ def ingest(file: Path, project: str, override: bool) -> None:
     "--engine",
     "-e",
     default="fake",
-    type=click.Choice(["fake", "vits"], case_sensitive=False),
+    type=click.Choice(["fake", "vits", "xtts"], case_sensitive=False),
     help="TTS Engine to use for synthesis (defaults to fake for offline testing).",
 )
-def convert(project: str, engine: str) -> None:
+@click.option(
+    "--device",
+    default="cpu",
+    type=click.Choice(["cpu", "cuda", "mps"], case_sensitive=False),
+    help="Device to run TTS on (cpu, cuda, mps). Ignored for fake engine.",
+)
+def convert(project: str, engine: str, device: str) -> None:
     """
     Run narrator-only conversion from book.json to chapter MP3s and M4B.
 
@@ -240,7 +247,7 @@ def convert(project: str, engine: str) -> None:
     """
     from ebook2audiobook.models.book import Book
     from ebook2audiobook.orchestrator.pipeline import PipelineOrchestrator
-    from ebook2audiobook.tts.fake_tts import FakeTTS
+    from ebook2audiobook.tts import get_engine
 
     project_dir = Path("projects") / project
     book_json_path = project_dir / "book.json"
@@ -255,19 +262,17 @@ def convert(project: str, engine: str) -> None:
 
     book = Book.model_validate_json(book_json_path.read_text(encoding="utf-8"))
 
-    # Initialise selected TTS engine
-    if engine.lower() == "fake":
-        tts_engine = FakeTTS()
-    else:
-        click.secho(
-            "VITS engine integration benchmark scheduled for Week 6. Using FakeTTS for testing.",
-            fg="yellow",
-        )
-        tts_engine = FakeTTS()
+    # Initialise selected TTS engine via factory
+    try:
+        tts_engine = get_engine(engine.lower(), device=device.lower())
+    except Exception as exc:
+        click.secho(f"Error loading TTS engine: {exc}", fg="red")
+        sys.exit(1)
 
     click.echo(f"Starting conversion for '{book.title}' in projects/{project}/")
     click.echo(f"  Chapters : {book.chapter_count}")
     click.echo(f"  Engine   : {tts_engine.engine_name}")
+    click.echo(f"  Device   : {device}")
     click.echo("")
 
     orchestrator = PipelineOrchestrator(project_dir=project_dir, tts_engine=tts_engine)
@@ -442,6 +447,222 @@ def attribute(project: str, model: str, ollama_url: str, override: bool) -> None
             fg="yellow",
         )
     click.echo(f"  attribution.json → {attribution_path}")
+
+
+# ---------------------------------------------------------------------------
+# castbook models
+# ---------------------------------------------------------------------------
+
+
+@cli.group()
+def models() -> None:
+    """Manage TTS and LLM models."""
+    pass
+
+
+@models.command()
+def list() -> None:
+    """
+    List downloaded models from the manifest.
+
+    Verifies files exist on disk before showing them.
+    """
+    import json
+    from pathlib import Path
+
+    from ebook2audiobook.config import get_manifest_path, get_models_dir
+
+    manifest_path = get_manifest_path()
+    models_dir = get_models_dir()
+
+    if not manifest_path.exists():
+        click.echo("No models manifest found.")
+        click.echo("Run 'castbook models download <model>' to download models.")
+        return
+
+    try:
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+    except Exception as exc:
+        click.secho(f"Error reading manifest: {exc}", fg="red")
+        return
+
+    if not manifest:
+        click.echo("No models recorded in manifest.")
+        return
+
+    click.echo("")
+    click.secho("Downloaded Models:", bold=True)
+    click.echo("")
+
+    for model_id, info in manifest.items():
+        # Verify file exists on disk
+        model_path = Path(info.get("path", ""))
+        present = model_path.exists() if model_path else False
+
+        click.echo(f"  {model_id}")
+        click.echo(f"    Path     : {model_path}")
+        click.echo(f"    Size     : {info.get('size', 'unknown')}")
+        click.echo(f"    Licence  : {info.get('licence', 'unknown')}")
+        click.echo(f"    Present  : {'yes' if present else 'no'}")
+        click.echo(f"    Downloaded: {info.get('downloaded_at', 'unknown')}")
+        click.echo("")
+
+    click.echo(f"Manifest: {manifest_path}")
+    click.echo(f"Models directory: {models_dir}")
+
+
+@models.command()
+@click.argument("model")
+@click.option("--yes", is_flag=True, help="Skip confirmation prompt.")
+def download(model: str, yes: bool) -> None:
+    """
+    Download a TTS or LLM model.
+
+    Available models: vits, xtts, or an Ollama model tag (e.g., llama3.2:3b).
+
+    Prints size and licence before downloading.
+    """
+    from ebook2audiobook.config import get_manifest_path, get_models_dir
+
+    models_dir = get_models_dir()
+    manifest_path = get_manifest_path()
+
+    if model == "vits":
+        _download_vits(models_dir, manifest_path, yes)
+    elif model == "xtts":
+        _download_xtts(models_dir, manifest_path, yes)
+    elif model.startswith("llama") or ":" in model:
+        _download_ollama(model, yes)
+    else:
+        click.secho(f"Unknown model: {model}", fg="red")
+        click.echo("Available: vits, xtts, or an Ollama model tag (e.g., llama3.2:3b)")
+        sys.exit(1)
+
+
+def _download_vits(models_dir: Path, manifest_path: Path, yes: bool) -> None:
+    """Download VITS-VCTK model."""
+    # VITS-VCTK approximate size: ~350 MB
+    size_str = "~350 MB"
+    licence = "MIT/Apache (weights), ODC-By 1.0 (VCTK corpus - attribution required)"
+
+    click.echo("")
+    click.secho("VITS-VCTK Model", bold=True)
+    click.echo(f"  Size    : {size_str}")
+    click.echo(f"  Licence : {licence}")
+    click.echo("")
+
+    if not yes:
+        if not click.confirm("Download this model?"):
+            click.echo("Download cancelled.")
+            return
+
+    click.echo("Downloading VITS-VCTK...")
+    try:
+        from TTS.api import TTS
+
+        # Load model (Coqui will download if not present)
+        TTS("tts_models/en/vctk/vits").to("cpu")
+        click.secho("✓ VITS-VCTK downloaded successfully.", fg="green")
+    except ImportError:
+        click.secho("Error: coqui-tts not installed. Run: uv sync --extra tts", fg="red")
+        sys.exit(1)
+    except Exception as exc:
+        click.secho(f"Download failed: {exc}", fg="red")
+        sys.exit(1)
+
+    # Update manifest
+    _update_manifest("vits", models_dir, manifest_path, size_str, licence)
+
+
+def _download_xtts(models_dir: Path, manifest_path: Path, yes: bool) -> None:
+    """Download XTTS-v2 model."""
+    # XTTS-v2 approximate size: >2 GB
+    size_str = ">2 GB"
+    licence = "Coqui Public Model License - non-commercial"
+
+    click.echo("")
+    click.secho("XTTS-v2 Model", bold=True)
+    click.echo(f"  Size    : {size_str}")
+    click.echo(f"  Licence : {licence}")
+    click.echo("")
+
+    if not yes:
+        if not click.confirm("Download this model?"):
+            click.echo("Download cancelled.")
+            return
+
+    click.echo("Downloading XTTS-v2 (this may take a while)...")
+    try:
+        from TTS.api import TTS
+
+        # Load model (Coqui will download if not present)
+        TTS("tts_models/multilingual/multi-dataset/xtts_v2").to("cpu")
+        click.secho("✓ XTTS-v2 downloaded successfully.", fg="green")
+    except ImportError:
+        click.secho("Error: coqui-tts not installed. Run: uv sync --extra tts", fg="red")
+        sys.exit(1)
+    except Exception as exc:
+        click.secho(f"Download failed: {exc}", fg="red")
+        sys.exit(1)
+
+    # Update manifest
+    _update_manifest("xtts", models_dir, manifest_path, size_str, licence)
+
+
+def _download_ollama(model_tag: str, yes: bool) -> None:
+    """Download an Ollama model."""
+    import shutil
+
+    if not shutil.which("ollama"):
+        click.secho("Ollama not found on PATH.", fg="yellow")
+        click.echo("Install Ollama from https://ollama.com or run:")
+        click.echo(f"  ollama pull {model_tag}")
+        return
+
+    click.echo("")
+    click.secho(f"Ollama Model: {model_tag}", bold=True)
+    click.echo("")
+
+    if not yes:
+        if not click.confirm(f"Pull {model_tag} from Ollama?"):
+            click.echo("Pull cancelled.")
+            return
+
+    click.echo(f"Pulling {model_tag} from Ollama...")
+    try:
+        subprocess.run(["ollama", "pull", model_tag], check=True)
+        click.secho(f"✓ {model_tag} pulled successfully.", fg="green")
+    except subprocess.CalledProcessError as exc:
+        click.secho(f"Pull failed: {exc}", fg="red")
+        sys.exit(1)
+
+
+def _update_manifest(
+    model_id: str, models_dir: Path, manifest_path: Path, size: str, licence: str
+) -> None:
+    """Update the models manifest with downloaded model info."""
+    import json
+    from datetime import datetime
+
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+
+    manifest = {}
+    if manifest_path.exists():
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+
+    manifest[model_id] = {
+        "path": str(models_dir),
+        "size": size,
+        "licence": licence,
+        "downloaded_at": datetime.utcnow().isoformat() + "Z",
+    }
+
+    with open(manifest_path, "w") as f:
+        json.dump(manifest, f, indent=2)
+
+    click.echo(f"Manifest updated: {manifest_path}")
 
 
 if __name__ == "__main__":
