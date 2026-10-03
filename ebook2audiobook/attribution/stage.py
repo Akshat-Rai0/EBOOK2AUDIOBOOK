@@ -25,6 +25,7 @@ from ebook2audiobook.chunker.dialogue_segmenter import DialogueSegmenter
 from ebook2audiobook.models.book import Book
 from ebook2audiobook.models.job import Job, StageStatus
 from ebook2audiobook.models.segment import Segment, SegmentKind, SegmentSource
+from ebook2audiobook.models_manager.manager import ModelManager
 from ebook2audiobook.store.db import JobDatabase
 
 logger = logging.getLogger(__name__)
@@ -59,11 +60,13 @@ class AttributionStage:
         attributor: Attributor,
         segmenter: DialogueSegmenter | None = None,
         registry: CharacterRegistry | None = None,
+        model_manager: ModelManager | None = None,
     ) -> None:
         self.db = db
         self.attributor = attributor
         self.segmenter = segmenter or DialogueSegmenter()
         self.registry = registry or CharacterRegistry()
+        self.model_manager = model_manager
 
     def run(
         self,
@@ -191,6 +194,15 @@ class AttributionStage:
                     self.attributor.close()
                 except Exception as e:
                     logger.debug("Error closing attributor client: %s", e)
+
+            # If ModelManager is provided, unload the LLM model
+            if self.model_manager is not None:
+                ollama_model = getattr(self.attributor, "model", None)
+                if ollama_model:
+                    try:
+                        self.model_manager.unload_ollama(ollama_model)
+                    except Exception as e:
+                        logger.debug("Error unloading Ollama model via ModelManager: %s", e)
 
         return self.db.get_all_segments()
 

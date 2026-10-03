@@ -94,3 +94,6 @@ known-first-party = ["ebook2audiobook"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v --tb=short"
+markers = [
+    "models: Tests that require downloaded model weights (VITS, XTTS, Ollama)",
+]
