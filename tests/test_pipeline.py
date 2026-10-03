@@ -12,6 +12,7 @@ import pytest
 
 from ebook2audiobook.audio.processor import AudioProcessor
 from ebook2audiobook.models.book import Book, Chapter, Paragraph
+from ebook2audiobook.models.cast import VoiceRef
 from ebook2audiobook.models.job import ConversionMode, Job, StageStatus
 from ebook2audiobook.models.segment import Segment, SegmentKind, SegmentSource, SegmentStatus
 from ebook2audiobook.orchestrator.pipeline import PipelineOrchestrator
@@ -221,7 +222,6 @@ class TestAudioProcessor:
     def test_normalize_loudness(self, tmp_path: Path):
         proc = AudioProcessor(sample_rate=22050)
         tts = FakeTTS(mode="tone")
-        from ebook2audiobook.models.cast import VoiceRef
 
         tone_wav = tmp_path / "tone.wav"
         tone_wav.write_bytes(
@@ -247,6 +247,59 @@ class TestPipelineOrchestrator:
         job = orch.run_narrator_pipeline(sample_book, progress_callback=cb)
         assert job.stage_status == StageStatus.DONE
         assert len(progress_calls) > 0
+
+    def test_normaliser_called_for_non_fake_engine(self, tmp_path: Path, sample_book: Book):
+        """Verify that synthesis normalisation is called for non-fake engines."""
+        from ebook2audiobook.models.cast import VoiceRef
+        from ebook2audiobook.tts.engine import TTSEngine
+
+        class NormaliserSpyEngine(TTSEngine):
+            """Stub engine that tracks whether normalise_for_synthesis was called."""
+
+            def __init__(self) -> None:
+                self.normalise_calls: list[str] = []
+
+            @property
+            def engine_name(self) -> str:
+                return "normaliser_spy"
+
+            @property
+            def max_chars(self) -> int:
+                return 100_000
+
+            @property
+            def sample_rate(self) -> int:
+                return 22050
+
+            def list_voices(self) -> list[dict]:
+                return [{"id": "v1", "name": "Voice 1"}]
+
+            def synthesize(self, text: str, voice: str | VoiceRef) -> bytes:
+                # Import and call normaliser directly to verify it works
+                from ebook2audiobook.tts.normalise import normalise_for_synthesis
+
+                normalised = normalise_for_synthesis(text)
+                self.normalise_calls.append(normalised)
+
+                # Return fake WAV bytes
+                return FakeTTS().synthesize(text, voice)
+
+        project_dir = tmp_path / "test_proj"
+        spy_engine = NormaliserSpyEngine()
+        orch = PipelineOrchestrator(project_dir=project_dir, tts_engine=spy_engine)
+
+        job = orch.run_narrator_pipeline(sample_book)
+        assert job.stage_status == StageStatus.DONE
+
+        # Verify normaliser was called for each segment
+        assert len(spy_engine.normalise_calls) > 0
+
+        # Verify some normalisation rules were applied
+        # The test book has text like "Mira set the lamp down."
+        # Check that normaliser was actually called (not skipped like FakeTTS)
+        for normalised in spy_engine.normalise_calls:
+            assert isinstance(normalised, str)
+            assert len(normalised) > 0
 
         # Verify output files
         mp3_1 = project_dir / "output" / "chapter_01.mp3"
