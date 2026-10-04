@@ -305,10 +305,10 @@ Matches the requested commit sequence:
 - [x] normaliser/chunking → synthesis normaliser, enhanced split_to_chunks
 - [x] Contract tests → FakeTTS always, VITS/XTTS with @pytest.mark.models
 - [x] ModelManager integration → factory check, AttributionStage unload_ollama
+- [x] full-book script → end-to-end test with resume verification (scripts/full_book_vits.sh)
 - [ ] benchmark → script created, ran once (awaiting approval for final version)
 - [ ] loudness harness → stop for user decision on A/B/C
 - [ ] chosen loudness → implementation after decision
-- [ ] full-book script → end-to-end test with resume verification
 - [ ] doctor updates → lame/aac encoder flags
 - [ ] docs → DECISIONS.md, LICENSES.md updates
 - [ ] datetime → separate datetime.utcnow() → timezone-aware (future work)
