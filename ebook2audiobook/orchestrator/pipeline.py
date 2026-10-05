@@ -112,15 +112,27 @@ class PipelineOrchestrator:
 
         Respects the TTS engine's ``max_chars`` limit by splitting sentences if needed.
         Uses stable sub-ids (s00, s01, s02) for sentences, and (s00a, s00b) for split pieces.
+
+        Note: Text is normalized before chunking to ensure chunks respect the max_chars limit
+        after normalization (e.g., "Mr." → "Mister", numbers → words).
         """
         segments: list[Segment] = []
+        # Get normalizer if not FakeTTS
+        if self.tts.engine_name != "fake":
+            from ebook2audiobook.tts.normalise import normalise_for_synthesis
+            normalizer = normalise_for_synthesis
+        else:
+            normalizer = lambda x: x
+
         for ch in book.chapters:
             for para in ch.paragraphs:
                 sentences = split_sentences(para.text)
                 sub_idx = 0
                 for sent in sentences:
+                    # Normalize before chunking to account for text expansion
+                    normalized_sent = normalizer(sent)
                     # Break sentence down if it exceeds the engine limit
-                    chunks = split_to_chunks(sent, max_chars=self.tts.max_chars)
+                    chunks = split_to_chunks(normalized_sent, max_chars=self.tts.max_chars)
                     if len(chunks) == 1:
                         # No split needed
                         seg_id = f"{para.id}-s{sub_idx:02d}"
@@ -178,14 +190,8 @@ class PipelineOrchestrator:
 
             out_wav = self.audio_dir / f"{seg.id}.wav"
             try:
-                # Normalise text for synthesis (if not FakeTTS)
-                if self.tts.engine_name != "fake":
-                    from ebook2audiobook.tts.normalise import normalise_for_synthesis
-
-                    text_to_synth = normalise_for_synthesis(seg.text)
-                else:
-                    text_to_synth = seg.text
-
+                # Text is already normalized during segment preparation
+                text_to_synth = seg.text
                 wav_bytes = self.tts.synthesize(text_to_synth, voice)
                 out_wav.write_bytes(wav_bytes)
                 self.db.update_segment_status(seg.id, SegmentStatus.DONE, audio_path=str(out_wav))

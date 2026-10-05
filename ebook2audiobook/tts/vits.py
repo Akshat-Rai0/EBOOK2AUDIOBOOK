@@ -60,7 +60,7 @@ class VITS(TTSEngine):
     """
 
     _MODEL_NAME = "tts_models/en/vctk/vits"
-    _PRACTICAL_MAX_CHARS = 400  # Conservative cap; verified against config
+    _PRACTICAL_MAX_CHARS = 500  # Conservative cap; increased from 400 to handle normalized text expansion
 
     def __init__(self, device: str = "cpu") -> None:
         """

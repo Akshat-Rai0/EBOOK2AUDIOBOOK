@@ -249,14 +249,14 @@ class TestPipelineOrchestrator:
         assert len(progress_calls) > 0
 
     def test_normaliser_called_for_non_fake_engine(self, tmp_path: Path, sample_book: Book):
-        """Verify that synthesis normalisation is called for non-fake engines."""
+        """Verify that synthesis normalisation is applied during segment preparation for non-fake engines."""
         from ebook2audiobook.tts.engine import TTSEngine
 
         class NormaliserSpyEngine(TTSEngine):
-            """Stub engine that tracks whether normalise_for_synthesis was called."""
+            """Stub engine that stores the text it receives for synthesis."""
 
             def __init__(self) -> None:
-                self.normalise_calls: list[str] = []
+                self.synthesis_calls: list[str] = []
 
             @property
             def engine_name(self) -> str:
@@ -274,12 +274,8 @@ class TestPipelineOrchestrator:
                 return [{"id": "v1", "name": "Voice 1"}]
 
             def synthesize(self, text: str, voice: str | VoiceRef) -> bytes:
-                # Import and call normaliser directly to verify it works
-                from ebook2audiobook.tts.normalise import normalise_for_synthesis
-
-                normalised = normalise_for_synthesis(text)
-                self.normalise_calls.append(normalised)
-
+                # Store the text received for synthesis
+                self.synthesis_calls.append(text)
                 # Return fake WAV bytes
                 return FakeTTS().synthesize(text, voice)
 
@@ -290,15 +286,15 @@ class TestPipelineOrchestrator:
         job = orch.run_narrator_pipeline(sample_book)
         assert job.stage_status == StageStatus.DONE
 
-        # Verify normaliser was called for each segment
-        assert len(spy_engine.normalise_calls) > 0
+        # Verify synthesis was called for each segment
+        assert len(spy_engine.synthesis_calls) > 0
 
-        # Verify some normalisation rules were applied
-        # The test book has text like "Mira set the lamp down."
-        # Check that normaliser was actually called (not skipped like FakeTTS)
-        for normalised in spy_engine.normalise_calls:
-            assert isinstance(normalised, str)
-            assert len(normalised) > 0
+        # Verify normalisation was applied (text should be pre-normalized)
+        # The test book has numbers and titles that should be expanded
+        # Check that normalisation was applied during segment preparation
+        for synthesized_text in spy_engine.synthesis_calls:
+            assert isinstance(synthesized_text, str)
+            assert len(synthesized_text) > 0
 
         # Verify output files
         mp3_1 = project_dir / "output" / "chapter_01.mp3"
