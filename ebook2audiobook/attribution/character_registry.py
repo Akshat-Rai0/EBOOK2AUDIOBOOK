@@ -24,13 +24,16 @@ import logging
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 # Tokens we ignore when comparing names (too generic to be identifying).
-_STOP_WORDS = {"the", "a", "an", "mr", "mrs", "ms", "dr", "sir", "lady", "lord"}
+_STOP_WORDS = {"the", "a", "an", "sir", "lady", "lord"}
+
+# Title tokens that identify gender/role (should be preserved for conflict detection)
+_TITLE_TOKENS = {"mr", "mrs", "ms", "dr", "professor", "captain", "colonel"}
 
 # Standalone titles that should not be merged automatically if bare
 _AMBIGUOUS_TITLES = {
@@ -76,12 +79,15 @@ class CharacterEntry:
         Total number of attribution spans assigned to this character.
     is_unknown:
         True when the character represents the catch-all ``"unknown"`` bucket.
+    paragraph_mentions:
+        List of paragraph indices where this character was mentioned (for "who is in the scene").
     """
 
     canonical_name: str
     aliases: set[str] = field(default_factory=set)
     mention_count: int = 0
     is_unknown: bool = False
+    paragraph_mentions: list[int] = field(default_factory=list)
 
     def add_alias(self, name: str, entries: dict[str, CharacterEntry] | None = None) -> None:
         """Add *name* as an alias and update canonical_name if *name* is longer."""
@@ -112,10 +118,35 @@ class CharacterRegistry:
         }
         self._merge_history: list[MergeRecord] = []
         self._flagged_ambiguities: list[dict] = []
+        self._paragraph_counter: int = 0
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    def seed(self, names_and_aliases: dict[str, list[str]]) -> None:
+        """
+        Pre-seed the registry with canonical names and aliases.
+
+        This is called before attribution to provide the LLM with the cast list.
+
+        Parameters
+        ----------
+        names_and_aliases:
+            Dict mapping canonical name to list of aliases.
+        """
+        for canonical_name, aliases in names_and_aliases.items():
+            entry = CharacterEntry(
+                canonical_name=canonical_name,
+                aliases=set(aliases) | {canonical_name},
+                mention_count=0,
+                is_unknown=False,
+            )
+            self._entries[canonical_name] = entry
+            for alias in aliases:
+                self._alias_index[alias.lower()] = canonical_name
+            self._alias_index[canonical_name.lower()] = canonical_name
+        logger.debug(f"Registry seeded with {len(names_and_aliases)} characters")
 
     def resolve(self, name: str) -> str:
         """
@@ -171,7 +202,7 @@ class CharacterRegistry:
 
         # Record merge before applying
         record = MergeRecord(
-            timestamp=datetime.utcnow().isoformat(),
+            timestamp=datetime.now(UTC).isoformat(),
             source_name=source_canon,
             target_name=target_canon,
             source_aliases=list(source_entry.aliases),
@@ -183,6 +214,10 @@ class CharacterRegistry:
         target_entry.aliases.update(source_entry.aliases)
         target_entry.aliases.add(source_canon)
         target_entry.mention_count += source_entry.mention_count
+        # Merge paragraph mentions (avoid duplicates)
+        for para_idx in source_entry.paragraph_mentions:
+            if para_idx not in target_entry.paragraph_mentions:
+                target_entry.paragraph_mentions.append(para_idx)
 
         # Re-index all aliases pointing to source_canon
         for alias_lower, canon in list(self._alias_index.items()):
@@ -230,10 +265,58 @@ class CharacterRegistry:
         )
         return record
 
-    def record_mention(self, canonical_name: str) -> None:
-        """Increment the mention counter for *canonical_name*."""
+    def record_mention(self, canonical_name: str, paragraph_index: int | None = None) -> None:
+        """
+        Increment the mention counter for *canonical_name* and track paragraph.
+
+        Parameters
+        ----------
+        canonical_name:
+            The canonical character name.
+        paragraph_index:
+            Optional paragraph index for "who is in the scene" tracking.
+        """
         if canonical_name in self._entries:
             self._entries[canonical_name].mention_count += 1
+            if paragraph_index is not None:
+                entry = self._entries[canonical_name]
+                # Add paragraph index if not already in list (avoid duplicates)
+                if paragraph_index not in entry.paragraph_mentions:
+                    entry.paragraph_mentions.append(paragraph_index)
+
+    def recent_characters(self, n_paragraphs: int = 8) -> list[str]:
+        """
+        Return characters mentioned in the last N paragraphs ("who is in the scene").
+
+        Parameters
+        ----------
+        n_paragraphs:
+            Number of recent paragraphs to consider.
+
+        Returns
+        -------
+        list[str]
+            List of canonical character names (excluding narrator and unknown).
+        """
+        # Get the current paragraph counter value
+        current_para = self._paragraph_counter
+        min_para = max(0, current_para - n_paragraphs)
+
+        recent: set[str] = set()
+        for entry in self._entries.values():
+            if entry.is_unknown or entry.canonical_name == "narrator":
+                continue
+            # Check if this character was mentioned in recent paragraphs
+            for para_idx in entry.paragraph_mentions:
+                if para_idx >= min_para:
+                    recent.add(entry.canonical_name)
+                    break
+
+        return sorted(recent)
+
+    def advance_paragraph(self) -> None:
+        """Advance the paragraph counter for tracking recent characters."""
+        self._paragraph_counter += 1
 
     def canonical_names(self) -> list[str]:
         """Return all canonical names (including narrator and unknown)."""
@@ -337,6 +420,13 @@ class CharacterRegistry:
             if incoming_unique and existing_unique:
                 continue
 
+            # Title conflict guard: Mr. vs Mrs. with same surname should not merge
+            incoming_titles = incoming_tokens & _TITLE_TOKENS
+            existing_titles = existing_tokens & _TITLE_TOKENS
+            if incoming_titles and existing_titles and incoming_titles != existing_titles:
+                # Different titles (e.g., Mr vs Mrs) - don't merge
+                continue
+
             matching_candidates.append(canon)
 
         # Ambiguity guard 2: multiple candidates share the token (e.g. shared surname)
@@ -361,7 +451,10 @@ class CharacterRegistry:
 def _significant_tokens(name: str) -> set[str]:
     """Return the set of meaningful tokens from *name*."""
     raw = re.sub(r"[^a-z0-9 ]", " ", name.lower())
-    return {t for t in raw.split() if len(t) >= 2 and t not in _STOP_WORDS}
+    tokens = raw.split()
+    # Include all tokens that are either long enough OR are title tokens
+    # Title tokens include mr, mrs, ms, dr, etc. (even though they're 2 chars)
+    return {t for t in tokens if (len(t) >= 2 and t not in _STOP_WORDS) or t in _TITLE_TOKENS}
 
 
 def build_registry(speaker_lists: Sequence[list[str]]) -> CharacterRegistry:

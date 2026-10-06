@@ -20,7 +20,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Generator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from ebook2audiobook.models.job import ConversionMode, Job, StageStatus
@@ -127,6 +127,11 @@ class JobDatabase:
                 conn.execute("ALTER TABLE segments ADD COLUMN evidence TEXT;")
             if "voice_hash" not in cols:
                 conn.execute("ALTER TABLE segments ADD COLUMN voice_hash TEXT;")
+            if "continues_previous" not in cols:
+                conn.execute(
+                    "ALTER TABLE segments ADD COLUMN "
+                    "continues_previous INTEGER DEFAULT 0;"
+                )
 
             conn.execute("CREATE INDEX IF NOT EXISTS idx_segments_speaker ON segments(speaker_id);")
 
@@ -142,7 +147,7 @@ class JobDatabase:
 
     def save_job(self, job: Job) -> None:
         """Insert or update a Job record."""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(UTC).isoformat()
         with self._connection() as conn:
             conn.execute(
                 """
@@ -197,7 +202,7 @@ class JobDatabase:
 
         User-locked segments (source='user') are NEVER overwritten.
         """
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(UTC).isoformat()
         records = [
             (
                 s.id,
@@ -211,6 +216,7 @@ class JobDatabase:
                 s.source.value,
                 s.evidence,
                 s.voice_hash,
+                s.continues_previous,
                 s.status.value,
                 s.audio_path,
                 s.retry_count,
@@ -224,9 +230,11 @@ class JobDatabase:
                 """
                 INSERT INTO segments (
                     id, chapter, paragraph_id, speaker, speaker_id, kind, text,
-                    confidence, source, evidence, voice_hash, status, audio_path,
-                    retry_count, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    confidence, source, evidence, voice_hash, continues_previous,
+                    status, audio_path, retry_count, created_at, updated_at
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )
                 ON CONFLICT(id) DO UPDATE SET
                     chapter = excluded.chapter,
                     paragraph_id = excluded.paragraph_id,
@@ -238,6 +246,7 @@ class JobDatabase:
                     source = excluded.source,
                     evidence = excluded.evidence,
                     voice_hash = excluded.voice_hash,
+                    continues_previous = excluded.continues_previous,
                     updated_at = excluded.updated_at
                 WHERE segments.source != 'user';
                 """,
@@ -285,7 +294,7 @@ class JobDatabase:
         increment_retry: bool = False,
     ) -> None:
         """Update a segment's progress status, optional audio path, and retry counter."""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(UTC).isoformat()
         with self._connection() as conn:
             retry_sql = "retry_count = retry_count + 1," if increment_retry else ""
             if audio_path is not None:
@@ -315,7 +324,7 @@ class JobDatabase:
         confidence: float = 1.0,
     ) -> None:
         """Update a segment's speaker assignment. Defaults to source=user (authoritative)."""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(UTC).isoformat()
         with self._connection() as conn:
             conn.execute(
                 """
@@ -354,6 +363,11 @@ class JobDatabase:
         source_val = row["source"] if "source" in row_keys and row["source"] is not None else "rule"
         evidence = row["evidence"] if "evidence" in row_keys else None
         voice_hash = row["voice_hash"] if "voice_hash" in row_keys else None
+        continues_previous = (
+            bool(row["continues_previous"])
+            if "continues_previous" in row_keys and row["continues_previous"] is not None
+            else False
+        )
 
         return Segment(
             id=row["id"],
@@ -366,6 +380,7 @@ class JobDatabase:
             source=SegmentSource(source_val),
             evidence=evidence,
             voice_hash=voice_hash,
+            continues_previous=continues_previous,
             text=row["text"],
             status=SegmentStatus(row["status"]),
             audio_path=row["audio_path"],

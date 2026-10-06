@@ -16,7 +16,7 @@ import json
 import logging
 import subprocess
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from ebook2audiobook.attribution.attributor import Attributor
@@ -80,7 +80,7 @@ class AttributionStage:
         job.stage_status = StageStatus.RUNNING
         self.db.save_job(job)
 
-        started_at = datetime.utcnow().isoformat()
+        started_at = datetime.now(UTC).isoformat()
         commit_hash = get_git_commit_hash()
         model_name = getattr(self.attributor, "model", "custom")
 
@@ -169,7 +169,7 @@ class AttributionStage:
                         progress_callback(processed_paras, total_paragraphs)
 
             # Record stage completion
-            stage_meta["completed_at"] = datetime.utcnow().isoformat()
+            stage_meta["completed_at"] = datetime.now(UTC).isoformat()
             stage_meta["characters_found"] = len(self.registry.character_names())
             self._record_stage_history(job.id, "attribution", "done", stage_meta)
 
@@ -207,7 +207,7 @@ class AttributionStage:
                     job_id,
                     stage_name,
                     status,
-                    meta.get("started_at", datetime.utcnow().isoformat()),
+                    meta.get("started_at", datetime.now(UTC).isoformat()),
                     meta.get("completed_at"),
                     meta.get("error"),
                     json.dumps(meta),
