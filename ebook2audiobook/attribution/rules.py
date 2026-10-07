@@ -16,42 +16,12 @@ from ebook2audiobook.models.segment import SegmentKind
 logger = logging.getLogger(__name__)
 
 # Speech verbs that indicate someone spoke
-_SPEECH_VERBS = {
-    "said",
-    "asked",
-    "replied",
-    "answered",
-    "whispered",
-    "shouted",
-    "yelled",
-    "cried",
-    "muttered",
-    "murmured",
-    "exclaimed",
-    "continued",
-    "added",
-    "remarked",
-    "noted",
-    "observed",
-    "commented",
-    "declared",
-    "stated",
-    "explained",
-    "argued",
-    "insisted",
-    "agreed",
-    "disagreed",
-    "promised",
-    "warned",
-    "threatened",
-    "begged",
-    "pleaded",
-    "laughed",
-    "sighed",
-    "groaned",
-    "snapped",
-    "growled",
-}
+_SPEECH_VERBS = (
+    r"(said|asked|replied|answered|whispered|shouted|yelled|cried|muttered|"
+    r"murmured|exclaimed|continued|added|remarked|noted|observed|commented|"
+    r"declared|stated|explained|argued|insisted|agreed|disagreed|promised|"
+    r"warned|threatened|begged|pleaded|laughed|sighed|groaned|snapped|growled)"
+)
 
 
 def apply_rules(
@@ -105,8 +75,7 @@ def _match_dialogue_tag(text: str, registry: CharacterRegistry) -> tuple[str, st
     """
     # Pattern 1: "...", said NAME
     pattern1 = re.compile(
-        r'"([^"]+)",\s+(said|asked|replied|whispered|shouted|cried|muttered)'
-        r'\s+([A-Z][a-zA-Z\s]+)\.?$'
+        rf'"([^"]+)",\s+{_SPEECH_VERBS}\s+(\S+)'
     )
     match1 = pattern1.search(text)
     if match1:
@@ -117,8 +86,7 @@ def _match_dialogue_tag(text: str, registry: CharacterRegistry) -> tuple[str, st
 
     # Pattern 2: NAME said, "..."
     pattern2 = re.compile(
-        r'^([A-Z][a-zA-Z\s]+)\s+(said|asked|replied|whispered|shouted|cried|muttered),'
-        r'\s+"([^"]+)"'
+        rf'^([A-Z][a-zA-Z\s]+)\s+{_SPEECH_VERBS},\s+"([^"]+)"'
     )
     match2 = pattern2.search(text)
     if match2:
