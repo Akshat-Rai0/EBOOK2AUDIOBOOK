@@ -326,8 +326,8 @@ def attribute(project: str, model: str, ollama_url: str, override: bool) -> None
     """
     Run speaker attribution on projects/<project>/book.json using a local Ollama LLM.
 
-    Reads book.json, processes each paragraph that contains dialogue, and writes
-    projects/<project>/attribution.json with per-span speaker labels.
+    Reads book.json, processes each paragraph that contains dialogue using AttributionStage,
+    and writes projects/<project>/attribution.json with per-span speaker labels.
 
     Ollama must be running before you call this command:
         ollama serve
@@ -339,11 +339,15 @@ def attribute(project: str, model: str, ollama_url: str, override: bool) -> None
     import json
 
     from ebook2audiobook.attribution import AttributionError, CharacterRegistry, OllamaAttributor
+    from ebook2audiobook.attribution.stage import AttributionStage
     from ebook2audiobook.models.book import Book
+    from ebook2audiobook.models.job import Job
+    from ebook2audiobook.store.db import JobDatabase
 
     project_dir = Path("projects") / project
     book_json_path = project_dir / "book.json"
     attribution_path = project_dir / "attribution.json"
+    db_path = project_dir / "state.sqlite"
 
     if not book_json_path.exists():
         click.secho(
@@ -374,48 +378,50 @@ def attribute(project: str, model: str, ollama_url: str, override: bool) -> None
         click.secho(f"\n✗ {exc}", fg="red")
         sys.exit(1)
 
-    attributed_chapters = []
+    # Use AttributionStage instead of direct loop (unifies CLI and stage paths)
+    db = JobDatabase(db_path)
+    job = Job(id=f"{project}-attribution", book_id=book.id, current_stage="attribution")
+
+    def on_progress(done: int, total: int) -> None:
+        pct = (done / total * 100) if total else 100.0
+        click.echo(f"\r  Progress: [{done}/{total}] {pct:5.1f}%   ", nl=False)
+
+    stage = AttributionStage(db=db, attributor=attributor, registry=registry)
+
+    try:
+        segments = stage.run(book=book, job=job, progress_callback=on_progress)
+        click.echo("")
+    except Exception as exc:
+        click.secho(f"\n✗ Attribution failed: {exc}", fg="red")
+        sys.exit(1)
+
+    # Export to attribution.json (legacy format for compatibility)
+    # Group segments by chapter and paragraph
+    chapters_data = []
     total_spans = 0
     unknown_spans = 0
 
     for ch_idx, chapter in enumerate(book.chapters):
-        ch_title = chapter.title or f"Chapter {ch_idx + 1}"
-        click.echo(f"  Chapter {ch_idx + 1}/{book.chapter_count}: {ch_title}")
-
-        attributed_paragraphs = []
-        context = ""
-        cast_so_far = registry.character_names()
-
+        paragraphs_data = []
         for para in chapter.paragraphs:
-            spans = attributor.attribute(
-                paragraph=para.text,
-                cast_so_far=cast_so_far,
-                context=context,
-            )
-            # Register all speakers with the registry.
-            for span in spans:
-                speaker = registry.resolve(span["speaker"])
-                span["speaker"] = speaker
-                registry.record_mention(speaker)
-
-            attributed_paragraphs.append(
+            para_segments = [s for s in segments if s.paragraph_id == para.id]
+            spans = [
                 {
-                    "paragraph_id": para.id,
-                    "spans": spans,
+                    "text": s.text,
+                    "speaker": s.speaker,
+                    "kind": s.kind.value,
                 }
-            )
+                for s in para_segments
+            ]
+            paragraphs_data.append({"paragraph_id": para.id, "spans": spans})
             total_spans += len(spans)
             unknown_spans += sum(1 for s in spans if s["speaker"] == "unknown")
-            # Last paragraph becomes context for the next call.
-            context = para.text
-            # Update cast list after each paragraph.
-            cast_so_far = registry.character_names()
 
-        attributed_chapters.append(
+        chapters_data.append(
             {
                 "chapter_index": ch_idx,
                 "title": chapter.title,
-                "paragraphs": attributed_paragraphs,
+                "paragraphs": paragraphs_data,
             }
         )
 
@@ -423,7 +429,7 @@ def attribute(project: str, model: str, ollama_url: str, override: bool) -> None
         "book_title": book.title,
         "model": model,
         "characters": registry.summary(),
-        "chapters": attributed_chapters,
+        "chapters": chapters_data,
         "stats": {
             "total_spans": total_spans,
             "unknown_spans": unknown_spans,
