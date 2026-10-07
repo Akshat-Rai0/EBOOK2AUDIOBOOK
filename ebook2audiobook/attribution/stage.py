@@ -146,16 +146,29 @@ class AttributionStage:
                                     self.registry.record_mention(speaker)
 
                         # V2: Step 2 - Mark quotes with IDs for LLM
-                        dialogue_segments = [s for s in p_segs if s.kind == SegmentKind.DIALOGUE]
                         quote_id_map: dict[str, Segment] = {}
                         quote_idx = 0
 
-                        for seg in dialogue_segments:
-                            if seg.source != SegmentSource.USER and seg.speaker_id == "unknown":
+                        # Build marked paragraph by replacing unknown dialogue
+                        # segments with [Q1], [Q2], etc. We use the original
+                        # paragraph text and perform sequential replacements
+                        # to preserve original spacing exactly.
+                        marked_paragraph = para.text
+                        for seg in p_segs:
+                            is_unknown_dialogue = (
+                                seg.kind == SegmentKind.DIALOGUE
+                                and seg.source != SegmentSource.USER
+                                and seg.speaker_id == "unknown"
+                            )
+                            if is_unknown_dialogue:
                                 quote_id = f"Q{quote_idx + 1}"
                                 quote_id_map[quote_id] = seg
-                                # Replace quote text with marker (simplified approach)
-                                # In production, we'd need more sophisticated text manipulation
+                                # Replace first occurrence of segment text with marker
+                                # This preserves original spacing. We use replace() with count=1
+                                # to ensure we only replace the first occurrence, which corresponds
+                                # to the current segment being processed in order.
+                                marker = f"[{quote_id}]"
+                                marked_paragraph = marked_paragraph.replace(seg.text, marker, 1)
                                 quote_idx += 1
 
                         # V2: Step 3 - Call LLM with quote markers
@@ -163,10 +176,8 @@ class AttributionStage:
                             allowed_speakers = (
                                 self.registry.character_names() + ["narrator", "unknown"]
                             )
-                            # Build marked paragraph (simplified - just use paragraph text)
-                            # In production, we'd inject [Q1], [Q2] markers into the text
                             attributions = self.attributor.attribute_quotes(
-                                marked_paragraph=para.text,
+                                marked_paragraph=marked_paragraph,
                                 allowed_speakers=allowed_speakers,
                             )
 

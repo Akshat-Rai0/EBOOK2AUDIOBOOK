@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ebook2audiobook.attribution.attributor import Attributor
+from ebook2audiobook.attribution.attributor import Attributor, QuoteAttribution
 from ebook2audiobook.attribution.stage import AttributionStage
 from ebook2audiobook.models.book import Book, Chapter, Paragraph
 from ebook2audiobook.models.job import ConversionMode, Job, StageStatus
@@ -26,6 +26,7 @@ class FakeAttributor(Attributor):
         self.mapping = mapping or {}
         self.closed = False
         self.call_count = 0
+        self.quote_call_count = 0
 
     def attribute(self, paragraph: str, cast_so_far: list[str], context: str = "") -> list[dict]:
         self.call_count += 1
@@ -38,6 +39,24 @@ class FakeAttributor(Attributor):
             speaker = self.mapping.get(q, "Mira")
             spans.append({"text": f'"{q}"', "speaker": speaker, "kind": "dialogue"})
         return spans
+
+    def attribute_quotes(
+        self, marked_paragraph: str, allowed_speakers: list[str]
+    ) -> list[QuoteAttribution]:
+        """V2 ID-based attribution for testing."""
+        self.quote_call_count += 1
+        # Extract [Q1], [Q2] markers and assign speakers
+        import re
+
+        markers = re.findall(r"\[Q(\d+)\]", marked_paragraph)
+        attributions = []
+        for marker in markers:
+            # Use mapping if available, otherwise default to "Mira"
+            speaker = self.mapping.get(marker, "Mira")
+            attributions.append(
+                QuoteAttribution(quote_id=f"Q{marker}", speaker_id=speaker, confidence=0.9)
+            )
+        return attributions
 
     def close(self) -> None:
         self.closed = True
@@ -87,7 +106,7 @@ class TestAttributionStage:
         db.save_job(job)
 
         book = self._create_sample_book()
-        attributor = FakeAttributor(mapping={"I am here,": "Mira"})
+        attributor = FakeAttributor(mapping={"Q1": "Mira"})
         stage = AttributionStage(db=db, attributor=attributor)
 
         segments = stage.run(book, job)
@@ -168,7 +187,7 @@ class TestAttributionStage:
         stage.run(book, job)
 
         # Paragraph c00-p001 already has dialogue attributed -> attributor was NOT called for it
-        assert attributor.call_count == 0
+        assert attributor.quote_call_count == 0
 
     def test_user_locked_segments_are_never_overwritten_by_attribution(self, tmp_path: Path):
         db = JobDatabase(tmp_path / "state.sqlite")
@@ -201,7 +220,7 @@ class TestAttributionStage:
 
         book = self._create_sample_book()
         # Attributor would claim "Mira"
-        attributor = FakeAttributor(mapping={"I am here,": "Mira"})
+        attributor = FakeAttributor(mapping={"Q1": "Mira"})
         stage = AttributionStage(db=db, attributor=attributor)
 
         stage.run(book, job)
