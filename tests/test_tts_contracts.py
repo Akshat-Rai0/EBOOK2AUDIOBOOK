@@ -66,9 +66,9 @@ class TestVITSContract:
 
     @pytest.fixture(autouse=True)
     def skip_if_no_coqui(self):
-        try:
-            from ebook2audiobook.tts.vits import VITS
-        except ImportError:
+        import importlib.util
+
+        if importlib.util.find_spec("TTS") is None:
             pytest.skip("coqui-tts not installed")
 
     def test_engine_name_property(self):
@@ -150,9 +150,9 @@ class TestXTTSContract:
 
     @pytest.fixture(autouse=True)
     def skip_if_no_coqui(self):
-        try:
-            from ebook2audiobook.tts.xtts import XTTS
-        except ImportError:
+        import importlib.util
+
+        if importlib.util.find_spec("TTS") is None:
             pytest.skip("coqui-tts not installed")
 
     def test_engine_name_property(self):
