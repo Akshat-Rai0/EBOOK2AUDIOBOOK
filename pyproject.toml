@@ -39,6 +39,8 @@ dependencies = [
     "pydub>=0.25",
     # M4B / MP3 tag writing — MIT alternative to mutagen (GPL)
     "mediafile>=0.12",
+    # Config file parsing (TOML)
+    "tomli>=2.0",
 ]
 
 [project.scripts]
@@ -51,6 +53,20 @@ dev = [
     "ruff>=0.4",
     # Used only in tests to generate synthetic PDFs (no network at runtime)
     "reportlab>=4.2",
+    # Config file writing (for tests that modify config)
+    "tomli-w>=1.0",
+]
+
+[project.optional-dependencies]
+tts = [
+    "coqui-tts>=0.27.4",   # idiap fork; PyPI name is coqui-tts, not TTS
+    "torch",
+    "torchaudio",
+    # Number-to-words for normaliser
+    "num2words>=0.5.12",
+    # Coqui compatibility requirements
+    "transformers<5.0",    # Coqui requires <5.0 for compatibility
+    "torchcodec>=0.17.0",  # Required for PyTorch 2.9+ audio I/O
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -77,4 +93,7 @@ known-first-party = ["ebook2audiobook"]
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v --tb=short"
+addopts = "-v --tb=short -m 'not models'"
+markers = [
+    "models: Tests that require downloaded model weights (VITS, XTTS, Ollama)",
+]

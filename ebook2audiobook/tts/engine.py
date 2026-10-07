@@ -55,7 +55,7 @@ class TTSEngine(ABC):
         """
 
     @abstractmethod
-    def synthesize(self, text: str, voice: VoiceRef) -> bytes:
+    def synthesize(self, text: str, voice: str | VoiceRef) -> bytes:
         """
         Synthesise *text* in the given *voice* and return WAV bytes.
 
@@ -65,7 +65,8 @@ class TTSEngine(ABC):
             Plain text to speak.  Must be ≤ ``max_chars`` characters.
             Must not contain SSML or markup.
         voice:
-            Points to the specific speaker this engine should use.
+            VoiceRef pointing to the specific speaker, or a string voice ID.
+            For convenience, adapters accept both VoiceRef and str.
 
         Returns
         -------

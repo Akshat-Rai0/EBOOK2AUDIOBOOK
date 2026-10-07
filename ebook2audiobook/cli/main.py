@@ -226,10 +226,16 @@ def ingest(file: Path, project: str, override: bool) -> None:
     "--engine",
     "-e",
     default="fake",
-    type=click.Choice(["fake", "vits"], case_sensitive=False),
+    type=click.Choice(["fake", "vits", "xtts"], case_sensitive=False),
     help="TTS Engine to use for synthesis (defaults to fake for offline testing).",
 )
-def convert(project: str, engine: str) -> None:
+@click.option(
+    "--device",
+    default="cpu",
+    type=click.Choice(["cpu", "cuda", "mps"], case_sensitive=False),
+    help="Device to run TTS on (cpu, cuda, mps). Ignored for fake engine.",
+)
+def convert(project: str, engine: str, device: str) -> None:
     """
     Run narrator-only conversion from book.json to chapter MP3s and M4B.
 
@@ -241,7 +247,7 @@ def convert(project: str, engine: str) -> None:
     """
     from ebook2audiobook.models.book import Book
     from ebook2audiobook.orchestrator.pipeline import PipelineOrchestrator
-    from ebook2audiobook.tts.fake_tts import FakeTTS
+    from ebook2audiobook.tts import get_engine
 
     project_dir = Path("projects") / project
     book_json_path = project_dir / "book.json"
@@ -256,19 +262,17 @@ def convert(project: str, engine: str) -> None:
 
     book = Book.model_validate_json(book_json_path.read_text(encoding="utf-8"))
 
-    # Initialise selected TTS engine
-    if engine.lower() == "fake":
-        tts_engine = FakeTTS()
-    else:
-        click.secho(
-            "VITS engine integration benchmark scheduled for Week 6. Using FakeTTS for testing.",
-            fg="yellow",
-        )
-        tts_engine = FakeTTS()
+    # Initialise selected TTS engine via factory
+    try:
+        tts_engine = get_engine(engine.lower(), device=device.lower())
+    except Exception as exc:
+        click.secho(f"Error loading TTS engine: {exc}", fg="red")
+        sys.exit(1)
 
     click.echo(f"Starting conversion for '{book.title}' in projects/{project}/")
     click.echo(f"  Chapters : {book.chapter_count}")
     click.echo(f"  Engine   : {tts_engine.engine_name}")
+    click.echo(f"  Device   : {device}")
     click.echo("")
 
     orchestrator = PipelineOrchestrator(project_dir=project_dir, tts_engine=tts_engine)
