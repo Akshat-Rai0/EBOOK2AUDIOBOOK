@@ -249,7 +249,10 @@ class TestPipelineOrchestrator:
         assert len(progress_calls) > 0
 
     def test_normaliser_called_for_non_fake_engine(self, tmp_path: Path, sample_book: Book):
-        """Verify that synthesis normalisation is applied during segment preparation for non-fake engines."""
+        """
+        Verify that synthesis normalisation is applied during segment preparation
+        for non-fake engines.
+        """
         from ebook2audiobook.tts.engine import TTSEngine
 
         class NormaliserSpyEngine(TTSEngine):

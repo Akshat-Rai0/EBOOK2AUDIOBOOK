@@ -49,6 +49,39 @@ _CONFIDENCE_MEDIUM = 0.70
 _CONFIDENCE_LOW = 0.40
 
 # ---------------------------------------------------------------------------
+# Prompt template (V1 legacy)
+# ---------------------------------------------------------------------------
+
+_SYSTEM_PROMPT = """You are a literary annotation assistant. Your only task is to
+split a paragraph into spans and label each span with a speaker and a kind.
+
+Rules:
+- "kind" must be exactly one of: "dialogue", "narration", "thought"
+- "speaker" must be exactly one of the names in the cast list, "narrator", or "unknown"
+- Use "narrator" for prose narration that no character speaks aloud
+- Use "unknown" ONLY when a speaker says something but you genuinely cannot tell who
+- Keep the "text" field identical to the original text (no paraphrasing)
+- Every character of the input paragraph must appear in exactly one span
+- Return ONLY a JSON object with a single key "spans" whose value is a list
+
+Example output:
+{"spans": [
+  {"text": "She walked to the window.", "speaker": "narrator", "kind": "narration"},
+  {"text": "\\"I can't sleep,\\" she said.", "speaker": "Mira", "kind": "dialogue"}
+]}"""
+
+_USER_TEMPLATE = """Cast so far: {cast}
+
+Previous paragraph (context):
+{context}
+
+Paragraph to annotate:
+{paragraph}
+
+Return JSON only."""
+
+
+# ---------------------------------------------------------------------------
 # Prompt template (V2)
 # ---------------------------------------------------------------------------
 
@@ -62,16 +95,15 @@ Rules:
 - Return ONLY a JSON object with a single key "attributions" whose value is a list
 - Each attribution must have: "quote_id" (e.g., "Q1"), "speaker_id", and "confidence"
 - Confidence levels: "high" (very certain), "medium" (fairly certain), "low" (uncertain)
-- Use "narrator" if the quote is narration or thoughts, not spoken dialogue
-- Use "unknown" if you genuinely cannot determine the speaker
+- Use "unknown" if you genuinely cannot determine the speaker, or if the quote is unspoken thoughts
 
 Example output:
-{
+{{
   "attributions": [
-    {"quote_id": "Q1", "speaker_id": "harry", "confidence": "high"},
-    {"quote_id": "Q2", "speaker_id": "ron", "confidence": "medium"}
+    {{"quote_id": "Q1", "speaker_id": "harry", "confidence": "high"}},
+    {{"quote_id": "Q2", "speaker_id": "ron", "confidence": "medium"}}
   ]
-}"""
+}}"""
 
 _USER_TEMPLATE_V2 = """Paragraph with quote markers:
 {marked_paragraph}
@@ -130,13 +162,37 @@ class OllamaAttributor(Attributor):
         """
         Legacy V1 method (deprecated - use attribute_quotes instead).
 
-        This method is kept for backwards compatibility but should not be used
-        in new code.  It always returns narrator fallback.
+        Kept for backwards compatibility and contract tests.
         """
-        logger.warning(
-            "OllamaAttributor.attribute() is deprecated. Use attribute_quotes() instead."
+        if not paragraph.strip():
+            return []
+
+        cast_str = ", ".join(cast_so_far) if cast_so_far else "(none yet)"
+        user_msg = _USER_TEMPLATE.format(
+            cast=cast_str,
+            context=context.strip() or "(none)",
+            paragraph=paragraph.strip(),
         )
-        # Fallback to narrator for legacy calls
+
+        last_error: str = ""
+        for attempt in range(self.max_retries + 1):
+            if attempt > 0:
+                sleep_sec = _RETRY_BASE_SLEEP * (2 ** (attempt - 1))
+                time.sleep(sleep_sec)
+
+            try:
+                raw = self._call_ollama(_SYSTEM_PROMPT, user_msg)
+                spans = self._parse_response(raw, paragraph)
+                return spans
+            except _ParseError as exc:
+                last_error = str(exc)
+                logger.warning("Attribution attempt %d failed: %s", attempt + 1, exc)
+
+        logger.warning(
+            "Attribution failed after %d attempts. Falling back to narrator. Last error: %s",
+            self.max_retries + 1,
+            last_error,
+        )
         return [{"text": paragraph, "speaker": "narrator", "kind": "narration"}]
 
     def attribute_quotes(
@@ -247,6 +303,51 @@ class OllamaAttributor(Attributor):
             raise _ParseError(f"HTTP {exc.response.status_code} from Ollama") from exc
         except httpx.HTTPError as exc:
             raise _ParseError(f"HTTP error contacting Ollama: {exc}") from exc
+
+    def _parse_response(self, body: dict[str, Any], paragraph: str) -> list[dict[str, str]]:
+        """
+        Validate and extract the spans list from the Ollama response body (V1).
+        """
+        try:
+            content_str: str = body["message"]["content"]
+        except (KeyError, TypeError) as exc:
+            raise _ParseError(f"Unexpected Ollama response shape: {exc}") from exc
+
+        try:
+            data = json.loads(content_str)
+        except json.JSONDecodeError as exc:
+            raise _ParseError(f"Model returned invalid JSON: {exc}") from exc
+
+        if not isinstance(data, dict) or "spans" not in data:
+            keys = list(data.keys()) if isinstance(data, dict) else type(data)
+            raise _ParseError(f"JSON missing 'spans' key: keys={keys}")
+
+        raw_spans = data["spans"]
+        if not isinstance(raw_spans, list):
+            raise _ParseError(f"'spans' is not a list: {type(raw_spans)}")
+
+        valid_kinds = {"dialogue", "narration", "thought"}
+        spans: list[dict[str, str]] = []
+        for i, span in enumerate(raw_spans):
+            if not isinstance(span, dict):
+                raise _ParseError(f"Span {i} is not a dict: {type(span)}")
+            missing = {"text", "speaker", "kind"} - span.keys()
+            if missing:
+                raise _ParseError(f"Span {i} missing keys: {missing}")
+            if span["kind"] not in valid_kinds:
+                raise _ParseError(f"Span {i} has invalid kind: {span['kind']!r}")
+            spans.append(
+                {
+                    "text": str(span["text"]).strip(),
+                    "speaker": str(span["speaker"]).strip(),
+                    "kind": str(span["kind"]),
+                }
+            )
+
+        if not spans:
+            raise _ParseError("Model returned an empty spans list")
+
+        return spans
 
     def _parse_response_v2(self, body: dict[str, Any]) -> list[QuoteAttribution]:
         """

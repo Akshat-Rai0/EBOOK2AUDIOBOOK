@@ -384,7 +384,13 @@ def attribute(project: str, model: str, ollama_url: str, override: bool) -> None
 
     # Use AttributionStage instead of direct loop (unifies CLI and stage paths)
     db = JobDatabase(db_path)
-    job = Job(id=f"{project}-attribution", book_id=book.id, current_stage="attribution")
+    db.init_schema()
+    job = Job(
+        id=f"{project}-attribution",
+        book_id=book.id,
+        project_name=project,
+        current_stage="attribution",
+    )
 
     def on_progress(done: int, total: int) -> None:
         pct = (done / total * 100) if total else 100.0

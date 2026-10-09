@@ -120,9 +120,12 @@ class PipelineOrchestrator:
         # Get normalizer if not FakeTTS
         if self.tts.engine_name != "fake":
             from ebook2audiobook.tts.normalise import normalise_for_synthesis
+
             normalizer = normalise_for_synthesis
         else:
-            normalizer = lambda x: x
+
+            def normalizer(text: str) -> str:
+                return text
 
         for ch in book.chapters:
             for para in ch.paragraphs:
@@ -165,7 +168,7 @@ class PipelineOrchestrator:
                                 )
                             )
                         sub_idx += 1
-        return segments
+        return [s for s in segments if s.text and s.text.strip()]
 
     def _synthesize_segments(
         self,
@@ -185,6 +188,11 @@ class PipelineOrchestrator:
         durations: list[float] = []
 
         for seg in pending:
+            if not seg.text or not seg.text.strip():
+                self.db.update_segment_status(seg.id, SegmentStatus.DONE)
+                done_count += 1
+                continue
+
             t0 = time.time()
             self.db.update_segment_status(seg.id, SegmentStatus.RUNNING)
 

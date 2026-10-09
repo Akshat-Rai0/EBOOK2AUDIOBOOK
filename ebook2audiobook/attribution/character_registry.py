@@ -415,8 +415,8 @@ class CharacterRegistry:
                 continue
 
             # Conflicting token guard: e.g. "Jane Smith" vs "John Smith"
-            incoming_unique = incoming_tokens - shared - _AMBIGUOUS_TITLES
-            existing_unique = existing_tokens - shared - _AMBIGUOUS_TITLES
+            incoming_unique = incoming_tokens - shared - _AMBIGUOUS_TITLES - _TITLE_TOKENS
+            existing_unique = existing_tokens - shared - _AMBIGUOUS_TITLES - _TITLE_TOKENS
             if incoming_unique and existing_unique:
                 continue
 

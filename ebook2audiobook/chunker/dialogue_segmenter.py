@@ -107,6 +107,9 @@ class DialogueSegmenter:
             sub_chunks = self._chunk_span(span_text, kind)
 
             for chunk in sub_chunks:
+                chunk = chunk.strip()
+                if not chunk:
+                    continue
                 seg_id = f"{paragraph_id}-s{seg_idx:02d}"
                 is_dialogue = kind == SegmentKind.DIALOGUE
 
@@ -181,6 +184,9 @@ class DialogueSegmenter:
             sub_chunks = self._chunk_span(span_text, kind)
 
             for chunk in sub_chunks:
+                chunk = chunk.strip()
+                if not chunk:
+                    continue
                 seg_id = f"{paragraph_id}-s{seg_idx:02d}"
                 is_dialogue = kind == SegmentKind.DIALOGUE
 

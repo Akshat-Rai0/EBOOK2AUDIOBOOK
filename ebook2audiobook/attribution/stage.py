@@ -103,10 +103,11 @@ class AttributionStage:
         existing_segs = self.db.get_all_segments()
         if not existing_segs:
             initial_segs = self.segmenter.segment_book(book)
+            initial_segs = [s for s in initial_segs if s.text and s.text.strip()]
             self.db.register_segments(initial_segs)
             all_segments = initial_segs
         else:
-            all_segments = existing_segs
+            all_segments = [s for s in existing_segs if s.text and s.text.strip()]
 
         # Index segments by paragraph_id for in-order attribution
         para_to_segs: dict[str, list[Segment]] = {}
@@ -177,7 +178,7 @@ class AttributionStage:
                         # V2: Step 3 - Call LLM with quote markers
                         if quote_id_map and hasattr(self.attributor, "attribute_quotes"):
                             allowed_speakers = (
-                                self.registry.character_names() + ["narrator", "unknown"]
+                                self.registry.character_names() + ["unknown"]
                             )
                             attributions = self.attributor.attribute_quotes(
                                 marked_paragraph=marked_paragraph,
@@ -188,12 +189,19 @@ class AttributionStage:
                             for attr in attributions:
                                 if attr.quote_id in quote_id_map:
                                     seg = quote_id_map[attr.quote_id]
-                                    seg.speaker_id = attr.speaker_id
-                                    seg.speaker = attr.speaker_id
+                                    # Rule: unknown speakers must be labeled "unknown",
+                                    # never silently collapsed into "narrator".
+                                    resolved_speaker = (
+                                        "unknown"
+                                        if attr.speaker_id in ("narrator", "unknown")
+                                        else attr.speaker_id
+                                    )
+                                    seg.speaker_id = resolved_speaker
+                                    seg.speaker = resolved_speaker
                                     seg.confidence = attr.confidence
                                     seg.source = SegmentSource.LLM
                                     seg.evidence = "llm"
-                                    self.registry.record_mention(attr.speaker_id)
+                                    self.registry.record_mention(resolved_speaker)
 
                         # V2: Step 4 - Apply alternation correction
                         alternation_corrections = apply_alternation_correction(p_segs)
