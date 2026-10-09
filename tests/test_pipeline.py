@@ -333,3 +333,78 @@ class TestPipelineOrchestrator:
         # Already done segment wavs must NOT have been re-synthesized / touched
         for p in seg_files:
             assert first_mtimes[p] == second_mtimes[p]
+
+    def test_model_manager_never_loads_llm_and_tts_together(
+        self, tmp_path: Path, sample_book: Book
+    ):
+        """
+        Verify at pipeline level that an LLM model and a TTS model are never
+        loaded simultaneously in ModelManager, and memory is released after unload.
+        """
+        from ebook2audiobook.models_manager.manager import ModelManager
+        from ebook2audiobook.tts.engine import TTSEngine
+
+        manager = ModelManager.instance()
+        manager.unload()
+
+        class FakeHeavyTTSEngine(TTSEngine):
+            """Simulates a heavy TTS model registered in ModelManager."""
+
+            def __init__(self, mgr: ModelManager) -> None:
+                self.mgr = mgr
+
+            @property
+            def engine_name(self) -> str:
+                return "heavy_tts"
+
+            @property
+            def max_chars(self) -> int:
+                return 400
+
+            @property
+            def sample_rate(self) -> int:
+                return 22050
+
+            def list_voices(self) -> list[dict]:
+                return [{"id": "narrator", "name": "Narrator"}]
+
+            def synthesize(self, text: str, voice: str | VoiceRef) -> bytes:
+                # During synthesis, heavy_tts must be the loaded model in ModelManager
+                assert self.mgr.is_loaded("heavy_tts")
+                # And no LLM model can be loaded
+                assert not self.mgr.is_loaded("llama3.2:3b")
+                return FakeTTS().synthesize(text, voice)
+
+        # 1. Simulate an attribution stage that loaded an LLM model and failed to unload
+        def fake_llm_loader():
+            return {"weights": "llm_weights"}
+
+        # Simulate LLM loaded into ModelManager
+        with pytest.raises(RuntimeError, match="is already loaded"):
+            with manager.load("llama3.2:3b", fake_llm_loader):
+                # While LLM is loaded, trying to run synthesis through ModelManager must fail
+                heavy_engine = FakeHeavyTTSEngine(manager)
+                orch = PipelineOrchestrator(
+                    project_dir=tmp_path / "colliding_proj",
+                    tts_engine=heavy_engine,
+                    model_manager=manager,
+                )
+                orch.run_narrator_pipeline(sample_book)
+
+        # 2. Now simulate proper sequential execution: LLM unloads, then TTS synthesizes
+        manager.unload()
+        assert manager.loaded_model_name is None
+
+        heavy_engine = FakeHeavyTTSEngine(manager)
+        orch = PipelineOrchestrator(
+            project_dir=tmp_path / "sequential_proj",
+            tts_engine=heavy_engine,
+            model_manager=manager,
+        )
+        job = orch.run_narrator_pipeline(sample_book)
+        assert job.stage_status == StageStatus.DONE
+
+        # 3. Verify memory is released after synthesis finishes
+        assert manager.loaded_model_name is None
+        assert manager._current_model is None
+

@@ -246,6 +246,7 @@ def convert(project: str, engine: str, device: str) -> None:
         castbook convert --project dracula
     """
     from ebook2audiobook.models.book import Book
+    from ebook2audiobook.models_manager.manager import ModelManager
     from ebook2audiobook.orchestrator.pipeline import PipelineOrchestrator
     from ebook2audiobook.tts import get_engine
 
@@ -262,9 +263,15 @@ def convert(project: str, engine: str, device: str) -> None:
 
     book = Book.model_validate_json(book_json_path.read_text(encoding="utf-8"))
 
+    model_manager = ModelManager.instance()
+
     # Initialise selected TTS engine via factory
     try:
-        tts_engine = get_engine(engine.lower(), device=device.lower())
+        tts_engine = get_engine(
+            engine.lower(),
+            device=device.lower(),
+            model_manager=model_manager,
+        )
     except Exception as exc:
         click.secho(f"Error loading TTS engine: {exc}", fg="red")
         sys.exit(1)
@@ -275,7 +282,11 @@ def convert(project: str, engine: str, device: str) -> None:
     click.echo(f"  Device   : {device}")
     click.echo("")
 
-    orchestrator = PipelineOrchestrator(project_dir=project_dir, tts_engine=tts_engine)
+    orchestrator = PipelineOrchestrator(
+        project_dir=project_dir,
+        tts_engine=tts_engine,
+        model_manager=model_manager,
+    )
 
     last_reported = 0
 

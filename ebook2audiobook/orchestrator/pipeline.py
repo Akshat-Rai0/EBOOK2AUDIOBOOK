@@ -25,6 +25,7 @@ from ebook2audiobook.models.book import Book
 from ebook2audiobook.models.cast import VoiceRef
 from ebook2audiobook.models.job import ConversionMode, Job, StageStatus
 from ebook2audiobook.models.segment import Segment, SegmentKind, SegmentStatus
+from ebook2audiobook.models_manager.manager import ModelManager
 from ebook2audiobook.store.db import JobDatabase
 from ebook2audiobook.tts.engine import TTSEngine
 
@@ -39,7 +40,22 @@ class PipelineOrchestrator:
         project_dir: Path,
         tts_engine: TTSEngine,
         mode: ConversionMode = ConversionMode.NARRATOR_ONLY,
+        model_manager: ModelManager | None = None,
     ) -> None:
+        """
+        Parameters
+        ----------
+        project_dir:
+            Directory for all project artefacts (audio, SQLite, output).
+        tts_engine:
+            Pre-constructed TTS engine to use for synthesis.
+        mode:
+            Conversion mode (narrator_only or multi_voice).
+        model_manager:
+            Optional shared ModelManager singleton.  When provided, synthesis
+            registers the engine with the manager so that an attribution LLM
+            cannot be loaded while TTS is active (the "single booth" contract).
+        """
         self.project_dir = Path(project_dir)
         self.audio_dir = self.project_dir / "audio"
         self.output_dir = self.project_dir / "output"
@@ -51,6 +67,7 @@ class PipelineOrchestrator:
 
         self.tts = tts_engine
         self.mode = mode
+        self.model_manager = model_manager
         self.processor = AudioProcessor(sample_rate=self.tts.sample_rate)
         self.exporter = AudioExporter()
 
@@ -89,7 +106,11 @@ class PipelineOrchestrator:
         # Stage 2: Synthesis (with per-segment resume support)
         job.current_stage = "synthesis"
         self.db.save_job(job)
-        self._synthesize_segments(progress_callback=progress_callback)
+        if self.model_manager is not None and self.tts.engine_name != "fake":
+            with self.model_manager.load(self.tts.engine_name, lambda: self.tts):
+                self._synthesize_segments(progress_callback=progress_callback)
+        else:
+            self._synthesize_segments(progress_callback=progress_callback)
 
         # Stage 3: Audio Assembly per chapter
         job.current_stage = "assembly"
