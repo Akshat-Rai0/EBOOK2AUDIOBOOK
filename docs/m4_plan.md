@@ -1,9 +1,9 @@
 # M4 Architecture & Implementation Plan: Casting and Multi-Voice Synthesis
 
 **Milestone:** M4 (`m4-casting-multivoice`)  
-**Date:** 2026-10-01  
+**Date:** 2026-10-01 (Updated 2026-10-09)  
 **Authors:** Akshat Rai, Divyanshu Bhusan  
-**Status:** DRAFT (Awaiting Approval — No Code Implemented)
+**Status:** IN PROGRESS (V2 Attribution, Character Registry, Dialogue Segmenter & Merged M2b TTS Implemented; Voice Catalogue & Review Gate Pending)
 
 ---
 
