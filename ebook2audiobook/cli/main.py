@@ -742,7 +742,7 @@ def _update_manifest(
 ) -> None:
     """Update the models manifest with downloaded model info."""
     import json
-    from datetime import datetime
+    from datetime import UTC, datetime
 
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -755,7 +755,7 @@ def _update_manifest(
         "path": str(models_dir),
         "size": size,
         "licence": licence,
-        "downloaded_at": datetime.utcnow().isoformat() + "Z",
+        "downloaded_at": datetime.now(UTC).isoformat(),
     }
 
     with open(manifest_path, "w") as f:
