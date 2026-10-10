@@ -1,9 +1,9 @@
 # M4 Architecture & Implementation Plan: Casting and Multi-Voice Synthesis
 
 **Milestone:** M4 (`m4-casting-multivoice`)  
-**Date:** 2026-10-01 (Updated 2026-10-09)  
+**Date:** 2026-10-01 (Updated 2026-10-11)  
 **Authors:** Akshat Rai, Divyanshu Bhusan  
-**Status:** IN PROGRESS (V2 Attribution, Character Registry, Dialogue Segmenter & Merged M2b TTS Implemented; Voice Catalogue & Review Gate Pending)
+**Status:** IN PROGRESS (V2 Attribution, Character Registry, Dialogue Segmenter & Merged M2b TTS Implemented; Voice Catalogue & Review Gate implementation approved for Steps 1-3 with FakeTTS only; Step 4 real-engine multi-voice awaiting separate approval)
 
 ---
 
@@ -33,31 +33,20 @@ The multi-voice conversion pipeline extends M2's linear state machine with attri
 ```
 
 ### Stage Graph Execution Rules
-1. **Linear Progression:** Stages execute strictly in sequence: `ingest` $\rightarrow$ `chunk` $\rightarrow$ `attribute` $\rightarrow$ `cast` $\rightarrow$ `review_gate` $\rightarrow$ `synthesize` $\rightarrow$ `assemble` $\rightarrow$ `export`.
+1. **Linear Progression:** Stages execute strictly in sequence: `ingest` → `chunk` → `attribute` → `cast` → `review_gate` → `synthesize` → `assemble` → `export`.
 2. **Review Gate Pause:** Upon completing the `cast` stage, the pipeline pauses with status `PENDING_REVIEW` unless invoked with `--auto`. The user reviews unassigned or low-confidence lines (`castbook cast review`) and approves (`castbook cast approve`).
 3. **Sequential Model Lifetime (Memory Guard):**
-   - In `attribute`: The LLM (`llama3.2:3b` in Ollama) runs. Upon stage completion, the orchestrator explicitly stops/unloads the model from Ollama memory (`ollama stop` / `keep_alive: 0`).
-   - `ModelManager` verifies active RAM before loading any TTS engine (XTTS-v2 or VITS). The LLM and TTS models are never held in memory simultaneously.
-4. **Selective Re-Synthesis:** Re-running after manual edits (`castbook cast voice`, `castbook cast merge`) invalidates only the segments whose text, speaker, or assigned voice changed.
+   - In `attribute`: The LLM (`llama3.2:3b` in Ollama) runs. Upon stage completion, the orchestrator explicitly unloads the model from Ollama memory (`keep_alive: 0`), enforced by `ModelManager`.
+   - `ModelManager` verifies active RAM before loading any TTS engine. The LLM and TTS models are never held in memory simultaneously.
+4. **Selective Re-Synthesis:** Re-running after manual edits invalidates only the segments whose synthesis cache key changed (see §7.1).
 
 ---
 
 ## 2. Schema Changes & Migrations
 
-### 2.1 Segment Model Update (`ebook2audiobook/models/book.py`)
+### 2.1 Segment Model (`ebook2audiobook/models/segment.py`) — already implemented
+
 ```python
-class SegmentSource(str, Enum):
-    LLM = "llm"
-    RULE = "rule"
-    USER = "user"  # Authoritative: never overwritten by automatic re-runs
-
-
-class SegmentKind(str, Enum):
-    NARRATION = "narration"
-    DIALOGUE = "dialogue"
-    THOUGHT = "thought"
-
-
 class Segment(BaseModel):
     id: str  # c<CC>-p<PPP>-s<SS>
     chapter_index: int
@@ -69,11 +58,12 @@ class Segment(BaseModel):
     source: SegmentSource = SegmentSource.RULE
     evidence: str | None = None  # Short snippet/rationale from attribution
     audio_path: str | None = None
-    voice_hash: str | None = None  # Hash of text + voice_id for cache validation
+    voice_hash: str | None = None  # Synthesis cache key (see §7.1)
     status: SegmentStatus = SegmentStatus.PENDING
 ```
 
-### 2.2 Character Model Update (`ebook2audiobook/models/cast.py`)
+### 2.2 Character Model (`ebook2audiobook/models/cast.py`) — already implemented
+
 ```python
 class CharacterProfile(BaseModel):
     gender: str = "unknown"  # "male", "female", "nonbinary", "unknown"
@@ -81,176 +71,241 @@ class CharacterProfile(BaseModel):
     age_bracket: str = "unknown"  # "child", "young_adult", "adult", "elderly", "unknown"
     age_confidence: float = 0.0
 
-
 class Character(BaseModel):
-    id: str  # Canonical identifier (slugified name)
-    display_name: str  # User-facing canonical name
-    aliases: list[str] = Field(default_factory=list)
-    profile: CharacterProfile = Field(default_factory=CharacterProfile)
+    id: str                          # Canonical slug
+    display_name: str
+    aliases: list[str]
+    profile: CharacterProfile
     line_count: int = 0
     first_chapter: int = 0
-    user_locked: bool = False  # If True, re-runs will never re-cast or merge
-    voice_assignments: dict[str, str] = Field(default_factory=dict)  # {engine_name: voice_id}
+    user_locked: bool = False        # Never re-cast or merged when True
+    voice_assignments: dict[str, str] # {engine_name: voice_id}
 ```
 
-### 2.3 SQLite Schema Migration (`projects/<name>/state.sqlite`)
-The `segments` table adds columns:
-- `speaker_id TEXT DEFAULT 'narrator'`
-- `kind TEXT DEFAULT 'narration'`
-- `confidence REAL DEFAULT 1.0`
-- `source TEXT DEFAULT 'rule'`
-- `evidence TEXT`
-- `voice_hash TEXT`
-
-A migration runner executes `ALTER TABLE` statements conditionally if the columns are missing, ensuring backward compatibility with existing M2 SQLite databases. Re-export JSON schemas to `docs/schemas/`.
+### 2.3 SQLite Schema Migration (`projects/<name>/state.sqlite`) — already implemented
+Columns `speaker_id`, `kind`, `confidence`, `source`, `evidence`, `voice_hash` added via `ALTER TABLE` migration in `init_schema()`.
 
 ---
 
-## 3. Segmenter Update (Quote / Tag Alternation)
+## 3. Segmenter Update — already implemented
 
-### Alternating Span Splitting Rule
-Paragraphs containing mixed dialogue and narration are parsed into alternating spans:
-- `"You lied," she said, "and you know it."` $\rightarrow$
-  1. `c01-p002-s01`: `"You lied,"` (kind: `dialogue`, speaker: character)
-  2. `c01-p002-s02`: `she said,` (kind: `narration`, speaker: `narrator`)
-  3. `c01-p002-s03`: `"and you know it."` (kind: `dialogue`, speaker: character)
-
-### Stable Identifier Scheme
-- Segment IDs preserve the M2 hierarchy: `c<CC>-p<PPP>-s<SS>`.
-- `<SS>` is 1-indexed and orders spans consecutively within the paragraph.
-- Idempotency: Segment IDs are deterministic. Re-segmenting generates identical IDs.
+Paragraphs split into alternating dialogue / narration spans. Segment IDs are deterministic and stable (`c<CC>-p<PPP>-s<SS>`). Whitespace-only segments are filtered before registration.
 
 ---
 
-## 4. Production Attribution Stage & Character Registry
+## 4. Production Attribution Stage & Character Registry — already implemented
 
-### 4.1 Production Attribution
-- Uses `OllamaAttributor` calibrated in M3 with `llama3.2:3b`.
-- Per-chunk processing with running canonical cast list and immediate previous-paragraph context.
-- Constrained JSON output format enforced at API level.
-- Maximum 2 retries on malformed output, then fallback to `speaker="unknown"` with confidence `0.0`.
-- Stage persistence records `model_tag`, `prompt_version`, and `git_commit` in `stages` table.
-
-### 4.2 Alias Merge & Character Registry
-- `CharacterRegistry` resolves raw strings to canonical names.
-- Token-intersection matches honorifics and surnames (`"Ms. Vane"` $\rightarrow$ `"Mira Vane"`).
-- Ambiguous tokens (e.g. shared surnames "John Smith" vs "Jane Smith", titles "the Captain") are not merged; they are preserved as distinct characters and flagged for review.
-- Merge operations record an audit log in `projects/<name>/merge_history.json` supporting `castbook cast undo`.
-
-### 4.3 Profile Inference
-- Rules extract stated descriptors (pronouns: he/she/they $\rightarrow$ gender; modifiers: "old", "young", "boy", "grandmother" $\rightarrow$ age bracket).
-- Output is always advisory: `confidence < 1.0`, defaults to `"unknown"` when text is silent.
+- V2 hybrid pipeline: rules → LLM (`llama3.2:3b`, ID-based `[Q1]`/`[Q2]`) → alternation heuristic.
+- `CharacterRegistry`: alias merging, collision detection, merge history, undo, ambiguity flagging.
+- `CharacterProfiler` in `attribution/profiler.py`: rule-based gender/age inference from pronouns & markers (no LLM, no network). Output always advisory (confidence < 1.0). **The caster reuses `CharacterProfiler` directly; no profiling logic is duplicated in `caster.py`.**
 
 ---
 
 ## 5. Voice Catalogue & Casting Algorithm
 
-### 5.1 Voice Catalogue (`voices.json` per engine)
-- Stored in `ebook2audiobook/audio/catalogue/`:
-  - `xtts_voices.json`: Built-in XTTS-v2 reference speakers (male/female, accents, licensed for non-commercial research).
-  - `vits_voices.json`: 109 VCTK speakers (MIT license, gender/accent tags).
-- Reserved voice: One clear voice per engine is permanently reserved for `narrator` and excluded from character assignment.
-- Commands: `castbook voices list --engine <xtts|vits>`, `castbook voices sample <voice-id>`.
+### 5.1 Voice Catalogue (`ebook2audiobook/audio/catalogue/`)
 
-### 5.2 Casting Algorithm
-1. **Rank by Frequency:** Characters sorted by `line_count` descending.
-2. **Profile Match:** Filter catalogue for matching `(gender, age_bracket)`. If unknown or pool exhausted, widen filter.
-3. **Co-occurrence Distinctness:**
-   - Compute chapter co-occurrence matrix $C_{ij}$ (number of chapters characters $i$ and $j$ both speak in).
-   - Penalize voices with similar acoustic timbre/pitch on characters with high co-occurrence.
-4. **Minor Character Extras Pool:**
-   - Characters with fewer than $K$ lines (configurable, default: 3 lines) do not receive unique voices; they pull from a 2-voice "extras pool" or fall back to the narrator.
-5. **Collective Speakers:** Phrases like `"they all cheered"` automatically assign to `narrator`.
-6. **Engine Isolation:** Voice assignments are keyed by `(character_id, engine)`. Switching engines keeps character profiles and re-runs the recommendation.
+Files: `vits_voices.json`, `xtts_voices.json`, `fake_voices.json`  
+Loaded by `catalogue.py:VoiceCatalogue`.
+
+**CRITICAL — Unverified metadata rule:**  
+VCTK speaker IDs (p225–p376) do not reliably match the `speaker-info.txt` demographics (Coqui issue #2258). XTTS reference speaker names carry no verified demographics either. Therefore **every per-voice tag (gender, age_bracket, accent) carries a `verified: false` flag by default.** The user sets `verified: true` by listening and running `castbook cast label` (a future command). The caster ONLY uses a tag when `verified: true`; otherwise it falls back to distinctness-only assignment.
+
+Catalogue schema per voice entry:
+```json
+{
+  "id": "p225",
+  "name": "Speaker p225",
+  "engine": "vits",
+  "gender": "unknown",
+  "gender_verified": false,
+  "age_bracket": "unknown",
+  "age_verified": false,
+  "accent": "unknown",
+  "accent_verified": false,
+  "licence": "MIT",
+  "narrator_reserved": false
+}
+```
+One voice per engine is flagged `"narrator_reserved": true` and permanently excluded from character assignment.
+
+### 5.2 Casting Algorithm (`ebook2audiobook/casting/caster.py`)
+
+**Minor Character Threshold constant:**
+```python
+MINOR_CHARACTER_THRESHOLD: int = 3  # Segments; configurable via config.toml [cast]
+EXTRAS_POOL_SIZE: int = 2           # Voices reserved for minor characters
+```
+**Important refinement:** Minor characters are only demoted to the extras pool if the total number of named speaking characters *exceeds* the number of available distinct catalogue voices (excluding narrator-reserved and already-assigned voices). When there are enough voices for everyone, every character gets a distinct one regardless of line count.
+
+**Algorithm steps:**
+1. **Frequency Rank:** Characters sorted by `line_count` descending; narrator always first.
+2. **Profile Match (verified only):** Filter catalogue where `gender_verified=true AND gender == character.profile.gender`, same for `age_bracket`. If no verified match exists, widen to all unverified voices.
+3. **Co-occurrence Distinctness (adjacency-weighted, NOT chapter-based):**
+   - Build segment-level adjacency matrix: two characters are adjacent if they both appear within a 20-segment sliding window.
+   - Co-occurrence weight = count of such overlapping windows.
+   - During voice assignment, voices acoustically similar to an already-assigned voice are penalized for characters with high co-occurrence weight.
+   - **Implementation reuses `attribution/profiler.py`** for any profiling lookups; caster.py does not contain its own profiling logic.
+4. **Minor character extras pool:**
+   - If `total_named_characters > available_distinct_voices`, characters with `line_count <= MINOR_CHARACTER_THRESHOLD` draw from a 2-voice pool (round-robin) instead of getting unique voices.
+   - If the pool is not needed (enough voices for all), every character gets a distinct voice.
+5. **Protagonist / "I" policy:** Speaker `"I"` resolves to the Narrator voice by default. `user_locked` manual assignment overrides this.
+6. **Engine-keyed assignments:** `voice_assignments = {engine_name: voice_id}`. Switching `--engine` keeps all existing `(character, other_engine)` assignments intact, re-runs suggestions for the new engine, and never overrides user-locked choices.
+
+### 5.3 `cast approve` — cast integrity hash
+`castbook cast approve` computes `SHA256(cast.json content)` and stores it as `cast_hash` in `state.sqlite` (or a `cast_state` JSON sidecar). Any subsequent edit to `cast.json` invalidates the approval. Before synthesis, the pipeline verifies the stored hash matches the current `cast.json`. `--auto` mode accepts all, sets `unknown` → narrator voice, and auto-approves.
 
 ---
 
 ## 6. Review Commands (CLI Interface)
 
 All commands wrap pure library functions from `ebook2audiobook.casting`:
-- `castbook cast show --project <p>`: Print table of characters, line counts, profiles, assigned voices, and unknown line count.
-- `castbook cast review --project <p>`: Interactive terminal step-through of all `unknown` or low-confidence ($< 0.80$) segments with 2 lines of preceding context.
-- `castbook cast merge <p> <alias> <target>`: Merge two characters, update segments, log to merge history.
-- `castbook cast split <p> <character> <segment-id>`: Detach a segment from a merged character.
-- `castbook cast rename <p> <character> <new-name>`: Rename character display name.
-- `castbook cast voice <p> <character> <voice-id>`: Assign specific voice; marks character as `user_locked`.
-- `castbook cast sample <p> <character>`: Synthesize a 3-second real sample using their assigned voice.
-- `castbook cast approve --project <p>`: Mark cast approved, allowing synthesis to proceed.
-- `castbook cast undo --project <p>`: Revert the last merge or rename from `merge_history.json`.
+
+| Command | Description |
+|---|---|
+| `castbook cast show -p <p>` | Table: character, line count, profile (with verified flags shown), assigned voice. |
+| `castbook cast suggest -p <p> [--engine <vits\|xtts\|fake>]` | Run casting algorithm; writes `cast.json`; does NOT approve. |
+| `castbook cast review -p <p>` | Step-through unknown & low-confidence (< 0.80) segments with 2-line preceding context. User picks speaker; sets `source=user`. |
+| `castbook cast sample -p <p> <character>` | Synthesize 3–5 seconds of one of their real attributed lines in their assigned voice; plays or writes to `projects/<p>/samples/<character>.wav`. |
+| `castbook cast voice -p <p> <character> <voice-id>` | Assign specific voice; marks `user_locked=True`. |
+| `castbook cast rename -p <p> <character> <new-name>` | Rename display name; logs to merge history for undo. |
+| `castbook cast merge -p <p> <source> <target>` | Merge two characters. Transactional: updates both `cast.json` and SQLite segments atomically. Records to merge history. Winner precedence: if `source` is `user_locked`, winner is `source`; if `target` is `user_locked`, winner is `target`; if both are `user_locked`, **abort with error** (ask user to manually resolve). Logs to `merge_history.json` for undo. |
+| `castbook cast split -p <p> <character> <segment-id>` | Detach segment from a merged character; creates or restores separate entry. |
+| `castbook cast approve -p <p> [--auto]` | Store SHA256 of approved cast. `--auto`: sets unknown → narrator, accepts all suggestions. |
+| `castbook cast undo -p <p>` | Revert last merge or rename from `merge_history.json`. Works for both `cast.json` and SQLite segments transactionally. |
 
 ---
 
 ## 7. Multi-Voice Synthesis, Assembly, and QA
 
-### 7.1 Multi-Voice Synthesis & Selective Invalidation
-- Each segment computes `voice_hash = SHA256(text + voice_id)`.
-- Re-synthesis query: `SELECT * FROM segments WHERE status != 'done' OR voice_hash != :new_hash`.
-- User-edited segments (`source = 'user'`) are never re-attributed, but are re-synthesized if their assigned character's voice changes.
-- Speaker conditioning latents (for XTTS-v2) are computed once per active voice and held in memory during the synthesis run.
+### 7.1 Synthesis Cache Key (extends M2 `voice_hash`)
+
+**One hash, never two.** The existing `voice_hash` column in `segments` is extended to cover all cache-busting inputs:
+
+```python
+def compute_voice_hash(
+    text: str,
+    voice_id: str,
+    engine: str,
+    engine_version: str,   # e.g. "coqui-tts:0.22.0"
+    normaliser_version: str,  # e.g. "1.0"
+) -> str:
+    """Delimiter-safe SHA-256 cache key for a synthesis call."""
+    parts = [text, voice_id, engine, engine_version, normaliser_version]
+    payload = "\x00".join(parts)  # NUL delimiter — safe for all text/version strings
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+```
+
+Segment re-synthesis query: `SELECT * FROM segments WHERE status != 'done' OR voice_hash != :new_hash`.
 
 ### 7.2 Assembly & Pauses
-- Seamless concatenations use tuned silence insertions:
-  - Dialogue to tag (or tag to dialogue within same sentence): **150 ms**.
-  - Speaker turn transition: **450 ms**.
-  - Paragraph boundary: **750 ms**.
-  - Chapter boundary: **1500 ms**.
-- Loudness normalization: Peak-scaling with EBU R128 loudness match target (-18 dBFS) across alternating speakers to eliminate volume jumps.
 
-### 7.3 Multi-Voice Quality Assurance (QA)
-- Check 1: Verify 100% of segments have a valid voice assigned in catalogue.
-- Check 2: Report count and percentage of `unknown` speaker lines.
-- Check 3: Consistency assert: ensure no character has multiple discordant voices in the same output.
-- Check 4: Utterance length guard: Utterances $< 4$ characters (e.g. "Oh.", "No.") padded with 50 ms trailing silence to prevent TTS truncation/glitches.
+Named constants (defined in `ebook2audiobook/audio/processor.py`):
+
+```python
+PAUSE_TAG_TRANSITION_MS: int = 150   # Dialogue ↔ narration tag within same sentence
+PAUSE_SPEAKER_TURN_MS: int = 450     # Speaker changes between sentences
+PAUSE_PARAGRAPH_MS: int = 700        # Already defined in M2 (unchanged)
+PAUSE_CHAPTER_MS: int = 1500         # Already defined in M2 (unchanged)
+PAUSE_SENTENCE_MS: int = 300         # Already defined in M2 (unchanged)
+PAUSE_SPLIT_PIECE_MS: int = 150      # Already defined in M2 (unchanged)
+```
+
+**Pause precedence (highest wins when multiple rules apply):**
+1. Chapter boundary: 1500 ms
+2. Paragraph boundary: 700 ms
+3. Sentence boundary: 300 ms
+4. Speaker turn (cross-sentence): 450 ms
+5. Tag transition within sentence: 150 ms
+6. Split-piece join: 150 ms
+
+### 7.3 Multi-Voice QA Checks
+
+- QA-1: All segments have a valid voice assigned in catalogue.
+- QA-2: Report count and % of `unknown` speaker lines.
+- QA-3: No character has multiple discordant voices in the same output.
+- QA-4: Utterances < 4 characters padded with 50 ms trailing silence.
 
 ---
 
-## 8. Verification of Caveats (Section 5)
+## 8. Caveat Verification
 
-| # | Caveat | Severity | Mitigation in M4 Design |
+| # | Caveat | Severity | Mitigation |
 |---|---|---|---|
-| 1 | **Voice pool exhaustion** (e.g. 20+ characters vs limited catalogue) | Medium | Minor characters (< 3 lines) routed to a rotating 2-voice extras pool or narrator; main characters prioritized by line count. |
-| 2 | **Engine-specific voices** (XTTS voices $\ne$ VITS voices) | High | `Cast` stores assignments per engine: `dict[engine, voice_id]`. Switching engine re-suggests without erasing profiles. |
-| 3 | **Gender/age misclassification** | Medium | Profile inference outputs confidence and accepts `"unknown"`. CLI provides single-command override; never presented as unquestionable fact. |
-| 4 | **Short utterances synthesis degradation** ("No.", "Why?") | High | Pad short segments (< 15 chars) with micro-silence (50 ms); test on FakeTTS and engine adapters. |
-| 5 | **Choppy sentence flow from tag splitting** | Medium | Calibrated 150 ms intra-sentence tag pause; cross-fade join to eliminate audio clicks. |
-| 6 | **Alias collisions** (same surname, shared titles) | High | Conservative matching: never merge solely on common surname or title; flag for manual review. |
-| 7 | **First-person narratives ("I")** | Medium | Explicit narrator policy: If narrator is identified as protagonist, narrator voice is assigned to character "I" with option to decouple. |
-| 8 | **Thoughts & epistolary passages (letters/italics)** | Low | Default `thought` kind to narrator voice or character internal voice; plain text defaults to narrator. |
-| 9 | **Cascade invalidation from cast changes** | High | Only segments whose `(text, voice_id)` hash altered are marked `PENDING`; all untouched WAVs remain cached. |
-| 10 | **XTTS speaker latent memory leaks** | Medium | Latents cached in dict bounded by unique cast size ($\le 30$ active voices $\approx$ negligible ~15 MB RAM). |
-| 11 | **Licensing restrictions** (XTTS non-commercial, VCTK attribution) | High | All catalogue voices annotated with license in `voices.json` and tracked in `docs/LICENSES.md`. |
-| 12 | **Long CPU attribution runtime** | Medium | Progress bars, per-chapter timing, and SQLite segment checkpointing so crashes lose $< 1$ paragraph. |
+| 1 | Voice pool exhaustion | Medium | Extras pool only kicks in when `named_chars > distinct_voices`. Minor characters ($\le K=3$ lines) demoted only if pool is actually needed. |
+| 2 | Engine-specific voices | High | Assignments keyed by `(character_id, engine)`. Switch engine: keep profile, re-suggest, never overwrite `user_locked`. |
+| 3 | Gender/age misclassification | Medium | All catalogue tags `verified: false` by default. Caster uses tag only when `verified: true`. Advisory profile shown in `cast show`. |
+| 4 | Short utterances | High | Pad segments < 15 chars with 50 ms trailing silence. |
+| 5 | Choppy tag flow | Medium | 150 ms `PAUSE_TAG_TRANSITION_MS` named constant. |
+| 6 | Alias collisions | High | Conservative matching, `user_locked` precedence in merge, abort if both sides user-locked. |
+| 7 | First-person narratives ("I") | Medium | `"I"` → narrator voice by default; explicit `cast voice` overrides. |
+| 8 | Thoughts & epistolary | Low | `thought` kind → narrator voice. |
+| 9 | Cascade invalidation | High | Extended `voice_hash` includes engine, engine_version, normaliser_version with NUL delimiter. Only changed segments re-synthesized. |
+| 10 | XTTS latent memory leaks | Medium | Latents bounded by cast size (≤ 30 voices ≈ 15 MB). |
+| 11 | Licensing | High | All entries annotated with `licence` field; tracked in `docs/LICENSES.md`. |
+| 12 | Long attribution runtime | Medium | Progress bars, per-chapter timing, SQLite checkpointing. |
 
 ---
 
 ## 9. Test Plan
 
-All tests execute offline with `FakeTTS` and a deterministic `FakeAttributor`:
-1. `test_multivoice_schema_migration`: Verifies database migration from M2 schema to M4 schema without data loss.
-2. `test_segmenter_alternating_spans`: Verifies `"Quote," tag, "quote."` splits into 3 segments with accurate kind and speaker tags.
-3. `test_character_registry_alias_merge_and_undo`: Verifies merge history and undo capability.
-4. `test_casting_cooccurrence_distinctness`: Verifies two co-occurring characters receive different voices.
-5. `test_selective_resynthesis_invalidation`: Verifies changing one character's voice only re-synthesizes that character's segments.
-6. `test_user_locked_authoritative`: Verifies `source=user` and `user_locked=True` are never overwritten on re-run.
-7. `test_memory_separation_assert`: Asserts LLM client is unloaded before TTS engine initializes.
-8. `test_narrator_hardware_tier_refusal`: Verifies `< 8 GB` RAM system cleanly rejects multi-voice mode with helpful diagnostic.
+All tests run offline with `FakeTTS` and deterministic `FakeAttributor`. Steps 1-3 are approved; Step 4 (real-engine multi-voice) awaits separate approval.
+
+### Approved (Steps 1-3): Catalogue, Caster, CLI Review
+
+1. **`test_voice_catalogue.py`**
+   - Load catalogue for each engine (fake/vits/xtts from JSON).
+   - All entries default to `*_verified=false`; `filter_verified()` returns empty unless tag is verified.
+   - `narrator_reserved` voice excluded from `available_for_character()`.
+
+2. **`test_caster.py`**
+   - Frequency ranking: highest `line_count` character gets first pick.
+   - Co-occurrence distinctness (20-segment window): two characters sharing 15+ adjacent segments get different voices.
+   - Minor character extras pool ONLY triggers when `named_chars > available_voices`.
+   - When pool is NOT needed, every character gets a distinct voice regardless of `line_count`.
+   - `"I"` → narrator voice policy.
+   - `user_locked=True` voice is never overwritten by re-suggest.
+   - Engine switching re-suggests for new engine; existing engine assignments preserved.
+   - Extras pool exhaustion: characters beyond pool size fall back to narrator.
+
+3. **`test_cast_cli.py`**
+   - `cast show` prints character table with verified flags.
+   - `cast suggest` writes `cast.json`; does not approve.
+   - `cast voice` sets voice, marks `user_locked`.
+   - `cast merge` transactional: both `cast.json` and SQLite updated; merge logged.
+   - `cast merge` with both sides `user_locked` → error, no mutation.
+   - `cast undo` reverts last merge in both `cast.json` and SQLite.
+   - `cast approve` stores hash; subsequent edit invalidates.
+   - `cast approve --auto` sets unknown → narrator.
+   - `cast rename` and `cast split` log to merge history for undo.
+
+4. **`test_cast_review_interaction.py`**
+   - `cast review` steps through unknown/low-confidence segments in order.
+   - User input sets `speaker_id`, `source=user`.
+   - Re-run does not overwrite user-set segments.
+
+### Deferred (Step 4, pending approval): Multi-Voice Synthesis
+
+5. `test_multivoice_pipeline.py`:
+   - End-to-end multi-voice with FakeTTS: dialogue routed to character voice, narration to narrator.
+   - Kill during synthesis (simulate crash at segment N); resume re-synthesizes only from N+1.
+   - User correction surviving re-run: `source=user` segment never re-attributed.
+   - Selective invalidation: voice change → only that character's segments become `PENDING`.
+6. `test_voice_hash.py`: NUL-delimited hash stable across fields, changes when any field changes.
+7. `test_cast_migration.py`: `cast.json` from schema `1.0` migrated to `1.1` without data loss; schema exported to `docs/schemas/cast.schema.json`.
 
 ---
 
-## 10. Open Decisions / Questions
+## 10. Open Decisions — **RESOLVED**
 
-Before proceeding to code, please confirm your preference on these 3 design choices:
-
-1. **Minor Character Threshold ($K$ lines):**
-   - *(Recommended) Option A:* Set $K=3$. Characters with $\le 3$ lines share a generic 2-voice extras pool or narrator.
-   - *Option B:* Set $K=1$. Every character who speaks even twice gets their own voice until catalogue is exhausted.
-   - *Option C:* Prompt user interactively when catalogue voices run low.
-
-2. **First-Person Protagonist Policy ("I"):**
-   - *(Recommended) Option A:* By default, character "I" uses the Narrator voice unless explicitly assigned another voice by the user in `cast review`.
-   - *Option B:* Always treat "I" as a distinct speaking character requiring a separate voice from the Narrator.
-
-3. **Intra-Sentence Tag Pause Duration:**
-   - *(Recommended) Option A:* 150 ms pause between dialogue and its narration tag (e.g., `"Stop," [150ms] she cried`).
-   - *Option B:* 250 ms pause (more pronounced pause).
-   - *Option C:* 0 ms (seamless join with 10 ms cross-fade).
+| Decision | Choice |
+|---|---|
+| Minor character threshold | $K=3$ (named constant `MINOR_CHARACTER_THRESHOLD = 3`); extras pool only if `named_chars > available_voices` |
+| First-person protagonist ("I") | Narrator voice by default; overridable via `cast voice` |
+| Intra-sentence tag pause | 150 ms (`PAUSE_TAG_TRANSITION_MS`); 450 ms for speaker turns (`PAUSE_SPEAKER_TURN_MS`) |
+| Catalogue metadata trust | All tags `verified: false`; caster uses only verified tags; distinctness-only fallback |
+| Cache key | Single extended `voice_hash`: SHA-256(text ∥ `\x00` ∥ voice_id ∥ `\x00` ∥ engine ∥ `\x00` ∥ engine_version ∥ `\x00` ∥ normaliser_version) |
+| `cast approve` integrity | SHA-256 of `cast.json` content stored; edit invalidates |
+| Engine switch policy | Keep profile & user-locked assignments; re-suggest for new engine only |
+| Co-occurrence scope | 20-segment sliding window (not chapter); reuses `attribution/profiler.py` |
+| `cast merge` conflict | If both sides `user_locked` → abort with error |
