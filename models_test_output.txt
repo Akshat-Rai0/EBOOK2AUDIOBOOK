@@ -1,0 +1,49 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.11.15, pytest-9.1.1, pluggy-1.6.0 -- /Users/bipinkumarrai/Desktop/EVERYTHING/CODING PROJECTS/EBOOK2AUDIOBOOK/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/bipinkumarrai/Desktop/EVERYTHING/CODING PROJECTS/EBOOK2AUDIOBOOK
+configfile: pyproject.toml
+testpaths: tests
+plugins: platformdirs-4.12.2, cov-7.1.0, typeguard-4.6.0, anyio-4.15.1
+collecting ... collected 266 items / 249 deselected / 17 selected
+
+tests/test_tts_contracts.py::TestVITSContract::test_engine_name_property PASSED [  5%]
+tests/test_tts_contracts.py::TestVITSContract::test_max_chars_property FAILED [ 11%]
+tests/test_tts_contracts.py::TestVITSContract::test_sample_rate_property PASSED [ 17%]
+tests/test_tts_contracts.py::TestVITSContract::test_list_voices_returns_dicts PASSED [ 23%]
+tests/test_tts_contracts.py::TestVITSContract::test_synthesize_returns_wav_bytes PASSED [ 29%]
+tests/test_tts_contracts.py::TestVITSContract::test_synthesize_with_string_voice_id PASSED [ 35%]
+tests/test_tts_contracts.py::TestVITSContract::test_exceeds_max_chars_raises FAILED [ 41%]
+tests/test_tts_contracts.py::TestVITSContract::test_empty_text_raises PASSED [ 47%]
+tests/test_tts_contracts.py::TestVITSContract::test_narrator_mapping PASSED [ 52%]
+tests/test_tts_contracts.py::TestXTTSContract::test_engine_name_property PASSED [ 58%]
+tests/test_tts_contracts.py::TestXTTSContract::test_max_chars_property PASSED [ 64%]
+tests/test_tts_contracts.py::TestXTTSContract::test_sample_rate_property PASSED [ 70%]
+tests/test_tts_contracts.py::TestXTTSContract::test_list_voices_returns_dicts PASSED [ 76%]
+tests/test_tts_contracts.py::TestXTTSContract::test_synthesize_returns_wav_bytes PASSED [ 82%]
+tests/test_tts_contracts.py::TestXTTSContract::test_synthesize_with_string_voice_id PASSED [ 88%]
+tests/test_tts_contracts.py::TestXTTSContract::test_exceeds_max_chars_raises PASSED [ 94%]
+tests/test_tts_contracts.py::TestXTTSContract::test_empty_text_raises PASSED [100%]
+
+=================================== FAILURES ===================================
+___________________ TestVITSContract.test_max_chars_property ___________________
+tests/test_tts_contracts.py:84: in test_max_chars_property
+    assert engine.max_chars == 400
+E   assert 500 == 400
+E    +  where 500 = <ebook2audiobook.tts.vits.VITS object at 0x1092bf810>.max_chars
+________________ TestVITSContract.test_exceeds_max_chars_raises ________________
+tests/test_tts_contracts.py:128: in test_exceeds_max_chars_raises
+    with pytest.raises(ValueError, match="exceeds"):
+E   Failed: DID NOT RAISE ValueError
+=============================== warnings summary ===============================
+tests/test_tts_contracts.py::TestVITSContract::test_sample_rate_property
+tests/test_tts_contracts.py::TestVITSContract::test_sample_rate_property
+  /Users/bipinkumarrai/Desktop/EVERYTHING/CODING PROJECTS/EBOOK2AUDIOBOOK/.venv/lib/python3.11/site-packages/torch/jit/_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_tts_contracts.py::TestVITSContract::test_max_chars_property - assert 500 == 400
+ +  where 500 = <ebook2audiobook.tts.vits.VITS object at 0x1092bf810>.max_chars
+FAILED tests/test_tts_contracts.py::TestVITSContract::test_exceeds_max_chars_raises - Failed: DID NOT RAISE ValueError
+===== 2 failed, 15 passed, 249 deselected, 2 warnings in 101.10s (0:01:41) =====
