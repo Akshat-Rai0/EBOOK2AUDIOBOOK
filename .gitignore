@@ -39,4 +39,5 @@ htmlcov/
 
 # Logs
 *.log
-Archive.zipmodels_test_output.txt
+Archive.zip
+models_test_output.txt
