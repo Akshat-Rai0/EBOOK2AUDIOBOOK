@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 DEFAULT_VITS_NARRATOR = "p225"  # Temporary default until M4 listen-labelling
+DEFAULT_REVIEW_CONFIDENCE_THRESHOLD = 0.80  # Provisional M3 gate threshold
 DEFAULT_CONFIG_DIR = Path.home() / ".castbook"
 DEFAULT_CONFIG_FILE = DEFAULT_CONFIG_DIR / "config.toml"
 DEFAULT_MANIFEST_FILE = DEFAULT_CONFIG_DIR / "models.json"
@@ -179,3 +180,23 @@ def set_vits_narrator(speaker_id: str) -> None:
     config["vits"]["narrator"] = speaker_id
     write_config(config)
     logger.info(f"Set VITS narrator to {speaker_id}")
+
+
+def get_review_confidence_threshold() -> float:
+    """
+    Get the attribution review confidence threshold.
+
+    Resolution order:
+    1. config.toml [attribution] review_confidence_threshold
+    2. DEFAULT_REVIEW_CONFIDENCE_THRESHOLD (0.80 provisional)
+
+    Returns
+    -------
+    float
+        Threshold below which segments are flagged for review (0.0 to 1.0).
+    """
+    config = read_config()
+    attr_config = config.get("attribution", {})
+    return float(
+        attr_config.get("review_confidence_threshold", DEFAULT_REVIEW_CONFIDENCE_THRESHOLD)
+    )

@@ -71,6 +71,25 @@ class PipelineOrchestrator:
         self.processor = AudioProcessor(sample_rate=self.tts.sample_rate)
         self.exporter = AudioExporter()
 
+        # Hardware tier guard: multi_voice mode requires >= 8 GB RAM
+        if self.mode == ConversionMode.MULTI_VOICE:
+            from ebook2audiobook.utils.env import (
+                compute_tier,
+                get_free_disk_gib,
+                get_gpu_info,
+                get_ram_gib,
+            )
+
+            ram = get_ram_gib()
+            gpu = get_gpu_info()
+            disk = get_free_disk_gib(self.project_dir)
+            tier = compute_tier(ram, gpu, disk)
+            if tier not in ("multi_voice", "unknown"):
+                raise RuntimeError(
+                    f"Hardware tier '{tier}' insufficient for multi-voice mode "
+                    "(requires >= 8 GB RAM). Use narrator-only mode instead."
+                )
+
     def run_narrator_pipeline(
         self,
         book: Book,
