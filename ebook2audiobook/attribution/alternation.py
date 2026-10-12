@@ -4,6 +4,7 @@ Analogy: like a tennis referee who notices when two players keep
 serving back and forth, and can predict who serves next based on
 the pattern.
 """
+
 from __future__ import annotations
 
 import logging

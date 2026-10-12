@@ -65,8 +65,8 @@ class TestCaster:
         # Alice and Bob talk repeatedly within a 20-segment window
         segs: list[Segment] = []
         for i in range(10):
-            segs.append(_create_sample_segment(f"c00-p000-s{i*2:02d}", "Alice"))
-            segs.append(_create_sample_segment(f"c00-p000-s{i*2+1:02d}", "Bob"))
+            segs.append(_create_sample_segment(f"c00-p000-s{i * 2:02d}", "Alice"))
+            segs.append(_create_sample_segment(f"c00-p000-s{i * 2 + 1:02d}", "Bob"))
 
         cast = Cast(
             characters=[

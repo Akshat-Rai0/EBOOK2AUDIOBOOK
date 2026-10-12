@@ -47,9 +47,7 @@ def _get_tts():
         _TTS = TTS
         return _TTS
     except ImportError as exc:
-        raise TTSError(
-            "coqui-tts not installed. Run: uv sync --extra tts"
-        ) from exc
+        raise TTSError("coqui-tts not installed. Run: uv sync --extra tts") from exc
 
 
 class VITS(TTSEngine):
@@ -169,9 +167,7 @@ class VITS(TTSEngine):
         # Validate speaker ID
         if speaker_id not in self._speaker_ids:
             available = ", ".join(self._speaker_ids[:5]) + "..."
-            raise TTSError(
-                f"Unknown VITS speaker: {speaker_id}. Available: {available}"
-            )
+            raise TTSError(f"Unknown VITS speaker: {speaker_id}. Available: {available}")
 
         # Synthesize
         try:

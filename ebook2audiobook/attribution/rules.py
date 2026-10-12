@@ -4,6 +4,7 @@ Analogy: like a detective who looks for obvious clues (someone saying
 "I did it" while pointing at themselves) before calling in the expert
 (LLM) for the hard cases.
 """
+
 from __future__ import annotations
 
 import logging
@@ -74,9 +75,7 @@ def _match_dialogue_tag(text: str, registry: CharacterRegistry) -> tuple[str, st
     Returns (speaker, evidence) or None if no match.
     """
     # Pattern 1: "...", said NAME
-    pattern1 = re.compile(
-        rf'"([^"]+)",\s+{_SPEECH_VERBS}\s+(\S+)'
-    )
+    pattern1 = re.compile(rf'"([^"]+)",\s+{_SPEECH_VERBS}\s+(\S+)')
     match1 = pattern1.search(text)
     if match1:
         quote, verb, name = match1.groups()
@@ -85,9 +84,7 @@ def _match_dialogue_tag(text: str, registry: CharacterRegistry) -> tuple[str, st
         return speaker, evidence
 
     # Pattern 2: NAME said, "..."
-    pattern2 = re.compile(
-        rf'^([A-Z][a-zA-Z\s]+)\s+{_SPEECH_VERBS},\s+"([^"]+)"'
-    )
+    pattern2 = re.compile(rf'^([A-Z][a-zA-Z\s]+)\s+{_SPEECH_VERBS},\s+"([^"]+)"')
     match2 = pattern2.search(text)
     if match2:
         name, verb, quote = match2.groups()

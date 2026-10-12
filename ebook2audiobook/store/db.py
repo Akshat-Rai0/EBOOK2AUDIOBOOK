@@ -129,8 +129,7 @@ class JobDatabase:
                 conn.execute("ALTER TABLE segments ADD COLUMN voice_hash TEXT;")
             if "continues_previous" not in cols:
                 conn.execute(
-                    "ALTER TABLE segments ADD COLUMN "
-                    "continues_previous INTEGER DEFAULT 0;"
+                    "ALTER TABLE segments ADD COLUMN continues_previous INTEGER DEFAULT 0;"
                 )
 
             conn.execute("CREATE INDEX IF NOT EXISTS idx_segments_speaker ON segments(speaker_id);")
