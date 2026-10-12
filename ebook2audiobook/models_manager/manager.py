@@ -180,4 +180,3 @@ class ModelManager:
         except Exception as exc:
             logger.warning(f"Failed to check Ollama loaded models: {exc}")
         return False
-

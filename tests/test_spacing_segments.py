@@ -45,9 +45,7 @@ class TestExtraSpacesInParagraph:
             text=self._PARA,
         )
         for seg in segments:
-            assert seg.text.strip(), (
-                f"Segment {seg.id} has empty/whitespace text: {repr(seg.text)}"
-            )
+            assert seg.text.strip(), f"Segment {seg.id} has empty/whitespace text: {repr(seg.text)}"
 
     def test_segment_texts_are_substrings_of_paragraph(self) -> None:
         """Every segment text must be a substring of the original paragraph text.
@@ -115,9 +113,7 @@ class TestLeadingTrailingSpacesInParagraph:
             text=self._PARA,
         )
         for seg in segments:
-            assert seg.text.strip(), (
-                f"Segment {seg.id} has empty/whitespace text: {repr(seg.text)}"
-            )
+            assert seg.text.strip(), f"Segment {seg.id} has empty/whitespace text: {repr(seg.text)}"
 
     def test_segment_texts_are_substrings_of_paragraph(self) -> None:
         """Every segment text must be findable inside the original paragraph string."""

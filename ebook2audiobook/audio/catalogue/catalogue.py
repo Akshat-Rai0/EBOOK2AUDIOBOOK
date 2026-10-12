@@ -176,9 +176,7 @@ class VoiceCatalogue:
         candidates = self.available_for_characters(engine)
         if gender and gender != "unknown":
             candidates = [
-                c
-                for c in candidates
-                if c.gender_verified and c.gender.lower() == gender.lower()
+                c for c in candidates if c.gender_verified and c.gender.lower() == gender.lower()
             ]
         if age_bracket and age_bracket != "unknown":
             candidates = [
@@ -202,8 +200,7 @@ class VoiceCatalogue:
                 filtered_entries.append(entry)
             else:
                 logger.warning(
-                    "Dropping unknown voice ID %s from %s catalogue "
-                    "(not in engine.list_voices())",
+                    "Dropping unknown voice ID %s from %s catalogue (not in engine.list_voices())",
                     entry.id,
                     engine,
                 )

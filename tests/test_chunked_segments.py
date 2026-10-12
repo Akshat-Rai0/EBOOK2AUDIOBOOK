@@ -59,9 +59,7 @@ class TestLongDialogueChunking:
             text=_LONG_DIALOGUE,
         )
         for seg in segments:
-            assert seg.text.strip(), (
-                f"Segment {seg.id} has empty text: {repr(seg.text)}"
-            )
+            assert seg.text.strip(), f"Segment {seg.id} has empty text: {repr(seg.text)}"
 
     def test_all_dialogue_segments_have_unknown_speaker(self) -> None:
         """Chunked dialogue segments must all start as speaker_id='unknown'."""
@@ -124,7 +122,5 @@ class TestShortDialogueSegmentation:
             text='"Hello," said Harry.',
         )
         dialogue_segs = [s for s in segments if s.kind == "dialogue"]
-        assert len(dialogue_segs) == 1, (
-            f"Expected 1 dialogue segment; got {len(dialogue_segs)}"
-        )
+        assert len(dialogue_segs) == 1, f"Expected 1 dialogue segment; got {len(dialogue_segs)}"
         assert dialogue_segs[0].text.strip() == '"Hello,"'

@@ -29,23 +29,25 @@ def build_fake_catalogue() -> list[dict]:
     entries = []
     for v in voices:
         vid = v["id"]
-        narrator = (vid == "fake-narrator")
-        entries.append({
-            "id": vid,
-            "name": v["name"],
-            "engine": "fake",
-            "gender": "unknown",
-            "gender_verified": False,
-            "age_bracket": "unknown",
-            "age_verified": False,
-            "accent": "unknown",
-            "accent_verified": False,
-            "proxy_median_f0_hz": None,
-            "proxy_spectral_centroid_hz": None,
-            "acoustic_proxy_verified": False,
-            "licence": "MIT",
-            "narrator_reserved": narrator,
-        })
+        narrator = vid == "fake-narrator"
+        entries.append(
+            {
+                "id": vid,
+                "name": v["name"],
+                "engine": "fake",
+                "gender": "unknown",
+                "gender_verified": False,
+                "age_bracket": "unknown",
+                "age_verified": False,
+                "accent": "unknown",
+                "accent_verified": False,
+                "proxy_median_f0_hz": None,
+                "proxy_spectral_centroid_hz": None,
+                "acoustic_proxy_verified": False,
+                "licence": "MIT",
+                "narrator_reserved": narrator,
+            }
+        )
     return entries
 
 
@@ -59,23 +61,25 @@ def build_vits_catalogue() -> list[dict]:
         vid = v["id"].strip()
         if not vid:
             continue
-        narrator = (vid == "p225")
-        entries.append({
-            "id": vid,
-            "name": f"Speaker {vid}",
-            "engine": "vits",
-            "gender": "unknown",
-            "gender_verified": False,
-            "age_bracket": "unknown",
-            "age_verified": False,
-            "accent": "unknown",
-            "accent_verified": False,
-            "proxy_median_f0_hz": None,
-            "proxy_spectral_centroid_hz": None,
-            "acoustic_proxy_verified": False,
-            "licence": "MIT / ODC-By",
-            "narrator_reserved": narrator,
-        })
+        narrator = vid == "p225"
+        entries.append(
+            {
+                "id": vid,
+                "name": f"Speaker {vid}",
+                "engine": "vits",
+                "gender": "unknown",
+                "gender_verified": False,
+                "age_bracket": "unknown",
+                "age_verified": False,
+                "accent": "unknown",
+                "accent_verified": False,
+                "proxy_median_f0_hz": None,
+                "proxy_spectral_centroid_hz": None,
+                "acoustic_proxy_verified": False,
+                "licence": "MIT / ODC-By",
+                "narrator_reserved": narrator,
+            }
+        )
     return entries
 
 
@@ -89,23 +93,25 @@ def build_xtts_catalogue() -> list[dict]:
         vid = v["id"].strip()
         if not vid:
             continue
-        narrator = (vid == "Ana Florence")
-        entries.append({
-            "id": vid,
-            "name": vid,
-            "engine": "xtts",
-            "gender": "unknown",
-            "gender_verified": False,
-            "age_bracket": "unknown",
-            "age_verified": False,
-            "accent": "unknown",
-            "accent_verified": False,
-            "proxy_median_f0_hz": None,
-            "proxy_spectral_centroid_hz": None,
-            "acoustic_proxy_verified": False,
-            "licence": "Coqui Public Model License (CPML) non-commercial",
-            "narrator_reserved": narrator,
-        })
+        narrator = vid == "Ana Florence"
+        entries.append(
+            {
+                "id": vid,
+                "name": vid,
+                "engine": "xtts",
+                "gender": "unknown",
+                "gender_verified": False,
+                "age_bracket": "unknown",
+                "age_verified": False,
+                "accent": "unknown",
+                "accent_verified": False,
+                "proxy_median_f0_hz": None,
+                "proxy_spectral_centroid_hz": None,
+                "acoustic_proxy_verified": False,
+                "licence": "Coqui Public Model License (CPML) non-commercial",
+                "narrator_reserved": narrator,
+            }
+        )
     return entries
 
 

@@ -528,9 +528,7 @@ def build(project: str) -> None:
     from ebook2audiobook.attribution.cast_builder import CastSeedFile
 
     seed_data = CastSeedFile(
-        characters=[
-            {"name": seed.name, "aliases": seed.aliases} for seed in seeds
-        ]
+        characters=[{"name": seed.name, "aliases": seed.aliases} for seed in seeds]
     )
 
     cast_seed_path.write_text(seed_data.model_dump_json(indent=2), encoding="utf-8")
@@ -573,8 +571,7 @@ def show(project: str) -> None:
         a_str = f"{spk.profile.age_bracket}{' (v)' if spk.profile.age_confidence >= 1.0 else ''}"
         locked_str = "yes" if spk.user_locked else "no"
         row_str = (
-            f"{spk.name:<20} {spk.line_count:<8} {g_str:<12} "
-            f"{a_str:<12} {v_str:<15} {locked_str}"
+            f"{spk.name:<20} {spk.line_count:<8} {g_str:<12} {a_str:<12} {v_str:<15} {locked_str}"
         )
         click.echo(row_str)
     click.echo("")
@@ -752,7 +749,7 @@ def review(project: str) -> None:
             f"conf: {r['confidence']:.2f}):"
         )
         click.echo(header_str)
-        click.echo(f"  \"{r['text']}\"")
+        click.echo(f'  "{r["text"]}"')
         new_spk = click.prompt(
             "  Enter speaker name (or press Enter to skip)",
             default="",

@@ -72,15 +72,16 @@ class CharacterProfile(BaseModel):
     age_bracket: str = "unknown"  # "child", "young_adult", "adult", "elderly", "unknown"
     age_confidence: float = 0.0
 
+
 class Character(BaseModel):
-    id: str                          # Canonical slug
+    id: str  # Canonical slug
     display_name: str
     aliases: list[str]
     profile: CharacterProfile
     line_count: int = 0
     first_chapter: int = 0
-    user_locked: bool = False        # Never re-cast or merged when True
-    voice_assignments: dict[str, str] # {engine_name: voice_id}
+    user_locked: bool = False  # Never re-cast or merged when True
+    voice_assignments: dict[str, str]  # {engine_name: voice_id}
 ```
 
 ### 2.3 SQLite Schema Migration (`projects/<name>/state.sqlite`) — already implemented
@@ -148,7 +149,7 @@ One voice per engine is flagged `"narrator_reserved": true` and permanently excl
 **Minor Character Threshold constant:**
 ```python
 MINOR_CHARACTER_THRESHOLD: int = 3  # Segments; configurable via config.toml [cast]
-EXTRAS_POOL_SIZE: int = 2           # Voices reserved for minor characters
+EXTRAS_POOL_SIZE: int = 2  # Voices reserved for minor characters
 ```
 **Refinement:** Minor characters are only demoted to the extras pool if the total number of named speaking characters *exceeds* the number of available distinct catalogue voices (excluding narrator-reserved and already-assigned voices). When there are enough voices for everyone, every character gets a distinct one regardless of line count.
 
@@ -201,7 +202,7 @@ def compute_voice_hash(
     text: str,
     voice_id: str,
     engine: str,
-    engine_version: str,   # e.g. "coqui-tts:0.22.0"
+    engine_version: str,  # e.g. "coqui-tts:0.22.0"
     normaliser_version: str,  # e.g. "1.0"
 ) -> str:
     """Delimiter-safe SHA-256 cache key for a synthesis call."""
@@ -217,12 +218,12 @@ Segment re-synthesis query: `SELECT * FROM segments WHERE status != 'done' OR vo
 Named constants (defined in `ebook2audiobook/audio/processor.py`):
 
 ```python
-PAUSE_CHAPTER_MS: int = 1500         # Chapter boundary
-PAUSE_PARAGRAPH_MS: int = 700        # Paragraph boundary
-PAUSE_SPEAKER_TURN_MS: int = 450     # Speaker changes across sentences
-PAUSE_SENTENCE_MS: int = 300         # Sentence boundary (same speaker)
-PAUSE_TAG_TRANSITION_MS: int = 150   # Dialogue ↔ narration tag within same sentence
-PAUSE_SPLIT_PIECE_MS: int = 150      # Split piece join within long sentence
+PAUSE_CHAPTER_MS: int = 1500  # Chapter boundary
+PAUSE_PARAGRAPH_MS: int = 700  # Paragraph boundary
+PAUSE_SPEAKER_TURN_MS: int = 450  # Speaker changes across sentences
+PAUSE_SENTENCE_MS: int = 300  # Sentence boundary (same speaker)
+PAUSE_TAG_TRANSITION_MS: int = 150  # Dialogue ↔ narration tag within same sentence
+PAUSE_SPLIT_PIECE_MS: int = 150  # Split piece join within long sentence
 ```
 
 **Pause precedence (MAXIMUM of applicable pauses):**

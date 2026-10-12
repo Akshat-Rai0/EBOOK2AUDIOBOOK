@@ -37,9 +37,7 @@ _RE_ELLIPS = re.compile(r"\.{3,}|…")
 _RE_EM_DASH = re.compile(r"[—–]")
 
 # Titles with word boundaries (avoid matching inside words)
-_RE_TITLES = re.compile(
-    r"\b(Mr\.|Mrs\.|Ms\.|Dr\.|St\.)\b"
-)
+_RE_TITLES = re.compile(r"\b(Mr\.|Mrs\.|Ms\.|Dr\.|St\.)\b")
 
 # Integers (standalone numbers, not part of larger alphanumeric)
 _RE_INTEGER = re.compile(r"\b\d+\b")

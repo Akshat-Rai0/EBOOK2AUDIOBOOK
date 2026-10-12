@@ -259,4 +259,3 @@ class TestAttributionStage:
         # Verify model manager was passed to stage
         # The actual unload_ollama call might fail if Ollama isn't running,
         # but the integration is verified by the fact the stage accepts the parameter
-

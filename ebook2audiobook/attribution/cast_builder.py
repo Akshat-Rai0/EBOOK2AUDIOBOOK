@@ -3,6 +3,7 @@
 Analogy: a casting director reads the whole script and writes the cast list
 before anyone auditions, so we know who we need voices for before attribution.
 """
+
 from __future__ import annotations
 
 import logging

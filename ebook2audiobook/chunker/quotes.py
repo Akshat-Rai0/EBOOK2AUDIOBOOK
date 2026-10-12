@@ -3,6 +3,7 @@
 Analogy: before a proofreader can find speech, every kind of quotation mark
 (curly, straight, German-style) is rewritten to one standard pen.
 """
+
 from __future__ import annotations
 
 import logging

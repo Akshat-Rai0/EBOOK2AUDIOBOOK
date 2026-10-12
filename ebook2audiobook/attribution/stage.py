@@ -177,9 +177,7 @@ class AttributionStage:
 
                         # V2: Step 3 - Call LLM with quote markers
                         if quote_id_map and hasattr(self.attributor, "attribute_quotes"):
-                            allowed_speakers = (
-                                self.registry.character_names() + ["unknown"]
-                            )
+                            allowed_speakers = self.registry.character_names() + ["unknown"]
                             attributions = self.attributor.attribute_quotes(
                                 marked_paragraph=marked_paragraph,
                                 allowed_speakers=allowed_speakers,
@@ -205,9 +203,11 @@ class AttributionStage:
 
                         # V2: Step 4 - Apply alternation correction
                         alternation_corrections = apply_alternation_correction(p_segs)
-                        for seg_id, (speaker, confidence, evidence) in (
-                            alternation_corrections.items()
-                        ):
+                        for seg_id, (
+                            speaker,
+                            confidence,
+                            evidence,
+                        ) in alternation_corrections.items():
                             for seg in p_segs:
                                 if seg.id == seg_id:
                                     seg.speaker_id = speaker

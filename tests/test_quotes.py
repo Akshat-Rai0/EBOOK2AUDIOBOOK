@@ -1,6 +1,5 @@
 """Tests for quote normalisation and span finding."""
 
-
 from ebook2audiobook.chunker.quotes import (
     detect_quote_style,
     find_spans,
@@ -92,7 +91,7 @@ class TestFindSpans:
         assert len(spans) == 2
         assert spans[0] == ('"Hello,"', SegmentKind.DIALOGUE)
         # find_spans preserves whitespace for round-trip, segmenter strips it
-        assert spans[1] == (' said Harry.', SegmentKind.NARRATION)
+        assert spans[1] == (" said Harry.", SegmentKind.NARRATION)
         assert not ends_inside
 
     def test_two_quotes_one_paragraph(self):
