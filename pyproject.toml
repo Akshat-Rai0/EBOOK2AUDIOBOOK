@@ -55,6 +55,10 @@ dev = [
     "reportlab>=4.2",
     # Config file writing (for tests that modify config)
     "tomli-w>=1.0",
+    # Audio analysis for scripts/measure_voices.py (ISC/BSD licences, permissive)
+    "librosa>=0.10",
+    "numpy>=1.24",
+    "scipy>=1.10",
 ]
 
 [project.optional-dependencies]
@@ -93,7 +97,7 @@ known-first-party = ["ebook2audiobook"]
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v --tb=short"
+addopts = "-v --tb=short -m 'not models'"
 markers = [
     "models: Tests that require downloaded model weights (VITS, XTTS, Ollama)",
 ]

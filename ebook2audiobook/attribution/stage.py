@@ -1,10 +1,13 @@
 """
-Production Attribution Stage (M4 Step 3).
+Production Attribution Stage (M4 Step 3 - V2 ID-based).
 
-Applies the calibrated M3 LLM recipe to assign character speakers to dialogue segments:
+Applies the calibrated M4 LLM recipe to assign character speakers to dialogue segments:
 - Model: llama3.2:3b (or configured local model).
-- Constrained JSON output format with running cast list and paragraph context.
-- Retry twice, then fall back to 'unknown'.
+- Quote markers [Q1], [Q2] for ID-based attribution (fixes P3).
+- Closed-set speaker list from seeded cast (fixes P6).
+- Rules before LLM for high-precision attribution.
+- Alternation correction after LLM for A/?/A patterns.
+- Real confidence buckets: high (0.95), medium (0.70), low (0.40) (fixes P5).
 - User-edited segments (source=USER) are never overwritten.
 - Stage metadata (model tag, prompt version, commit hash) recorded in state.sqlite.
 - Explicit model eviction upon completion to guarantee memory separation before TTS.
@@ -16,11 +19,13 @@ import json
 import logging
 import subprocess
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
+from ebook2audiobook.attribution.alternation import apply_alternation_correction
 from ebook2audiobook.attribution.attributor import Attributor
 from ebook2audiobook.attribution.character_registry import CharacterRegistry
+from ebook2audiobook.attribution.rules import apply_rules
 from ebook2audiobook.chunker.dialogue_segmenter import DialogueSegmenter
 from ebook2audiobook.models.book import Book
 from ebook2audiobook.models.job import Job, StageStatus
@@ -30,7 +35,7 @@ from ebook2audiobook.store.db import JobDatabase
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "1.0-m3-constrained"
+PROMPT_VERSION = "2.0-m4-id-based"
 
 
 def get_git_commit_hash(repo_dir: Path | None = None) -> str:
@@ -83,7 +88,7 @@ class AttributionStage:
         job.stage_status = StageStatus.RUNNING
         self.db.save_job(job)
 
-        started_at = datetime.utcnow().isoformat()
+        started_at = datetime.now(UTC).isoformat()
         commit_hash = get_git_commit_hash()
         model_name = getattr(self.attributor, "model", "custom")
 
@@ -98,10 +103,11 @@ class AttributionStage:
         existing_segs = self.db.get_all_segments()
         if not existing_segs:
             initial_segs = self.segmenter.segment_book(book)
+            initial_segs = [s for s in initial_segs if s.text and s.text.strip()]
             self.db.register_segments(initial_segs)
             all_segments = initial_segs
         else:
-            all_segments = existing_segs
+            all_segments = [s for s in existing_segs if s.text and s.text.strip()]
 
         # Index segments by paragraph_id for in-order attribution
         para_to_segs: dict[str, list[Segment]] = {}
@@ -110,8 +116,6 @@ class AttributionStage:
 
         total_paragraphs = sum(len(ch.paragraphs) for ch in book.chapters)
         processed_paras = 0
-
-        context_prev = ""
 
         # Pre-seed registry from existing segments (for resume safety)
         for seg in all_segments:
@@ -131,48 +135,96 @@ class AttributionStage:
                     )
 
                     if needs_attribution:
-                        cast_so_far = self.registry.character_names()
-                        spans = self.attributor.attribute(
-                            paragraph=para.text,
-                            cast_so_far=cast_so_far,
-                            context=context_prev,
-                        )
+                        # V2: Step 1 - Apply rules first (high-precision)
+                        rule_attributions = apply_rules(p_segs, self.registry)
 
-                        # Filter dialogue spans from model output
-                        diag_spans = [s for s in spans if s.get("kind") == "dialogue"]
-                        diag_idx = 0
+                        # Apply rule attributions
+                        for seg_id, (speaker, confidence, evidence) in rule_attributions.items():
+                            for seg in p_segs:
+                                if seg.id == seg_id:
+                                    seg.speaker_id = speaker
+                                    seg.speaker = speaker
+                                    seg.confidence = confidence
+                                    seg.source = SegmentSource.RULE
+                                    seg.evidence = evidence
+                                    self.registry.record_mention(speaker)
 
+                        # V2: Step 2 - Mark quotes with IDs for LLM
+                        quote_id_map: dict[str, Segment] = {}
+                        quote_idx = 0
+
+                        # Build marked paragraph by replacing unknown dialogue
+                        # segments with [Q1], [Q2], etc. We use the original
+                        # paragraph text and perform sequential replacements
+                        # to preserve original spacing exactly.
+                        marked_paragraph = para.text
                         for seg in p_segs:
-                            if (
+                            is_unknown_dialogue = (
                                 seg.kind == SegmentKind.DIALOGUE
                                 and seg.source != SegmentSource.USER
-                            ):
-                                if diag_idx < len(diag_spans):
-                                    raw_speaker = diag_spans[diag_idx]["speaker"]
-                                    canon_speaker = self.registry.resolve(raw_speaker)
-                                    self.registry.record_mention(canon_speaker)
-                                    seg.speaker_id = canon_speaker
-                                    seg.speaker = canon_speaker
+                                and seg.speaker_id == "unknown"
+                            )
+                            if is_unknown_dialogue:
+                                quote_id = f"Q{quote_idx + 1}"
+                                quote_id_map[quote_id] = seg
+                                # Replace first occurrence of segment text with marker
+                                # This preserves original spacing. We use replace() with count=1
+                                # to ensure we only replace the first occurrence, which corresponds
+                                # to the current segment being processed in order.
+                                marker = f"[{quote_id}]"
+                                marked_paragraph = marked_paragraph.replace(seg.text, marker, 1)
+                                quote_idx += 1
+
+                        # V2: Step 3 - Call LLM with quote markers
+                        if quote_id_map and hasattr(self.attributor, "attribute_quotes"):
+                            allowed_speakers = (
+                                self.registry.character_names() + ["unknown"]
+                            )
+                            attributions = self.attributor.attribute_quotes(
+                                marked_paragraph=marked_paragraph,
+                                allowed_speakers=allowed_speakers,
+                            )
+
+                            # Apply LLM attributions by ID
+                            for attr in attributions:
+                                if attr.quote_id in quote_id_map:
+                                    seg = quote_id_map[attr.quote_id]
+                                    # Rule: unknown speakers must be labeled "unknown",
+                                    # never silently collapsed into "narrator".
+                                    resolved_speaker = (
+                                        "unknown"
+                                        if attr.speaker_id in ("narrator", "unknown")
+                                        else attr.speaker_id
+                                    )
+                                    seg.speaker_id = resolved_speaker
+                                    seg.speaker = resolved_speaker
+                                    seg.confidence = attr.confidence
                                     seg.source = SegmentSource.LLM
-                                    seg.confidence = 0.9 if canon_speaker != "unknown" else 0.0
-                                    diag_idx += 1
-                                else:
-                                    # Fallback if spans didn't match count
-                                    seg.speaker_id = "unknown"
-                                    seg.speaker = "unknown"
-                                    seg.source = SegmentSource.LLM
-                                    seg.confidence = 0.0
+                                    seg.evidence = "llm"
+                                    self.registry.record_mention(resolved_speaker)
+
+                        # V2: Step 4 - Apply alternation correction
+                        alternation_corrections = apply_alternation_correction(p_segs)
+                        for seg_id, (speaker, confidence, evidence) in (
+                            alternation_corrections.items()
+                        ):
+                            for seg in p_segs:
+                                if seg.id == seg_id:
+                                    seg.speaker_id = speaker
+                                    seg.speaker = speaker
+                                    seg.confidence = confidence
+                                    seg.source = SegmentSource.RULE
+                                    seg.evidence = evidence
 
                         # Save updated paragraph segments to SQLite
                         self.db.register_segments(p_segs)
 
-                    context_prev = para.text
                     processed_paras += 1
                     if progress_callback:
                         progress_callback(processed_paras, total_paragraphs)
 
             # Record stage completion
-            stage_meta["completed_at"] = datetime.utcnow().isoformat()
+            stage_meta["completed_at"] = datetime.now(UTC).isoformat()
             stage_meta["characters_found"] = len(self.registry.character_names())
             self._record_stage_history(job.id, "attribution", "done", stage_meta)
 
@@ -219,7 +271,7 @@ class AttributionStage:
                     job_id,
                     stage_name,
                     status,
-                    meta.get("started_at", datetime.utcnow().isoformat()),
+                    meta.get("started_at", datetime.now(UTC).isoformat()),
                     meta.get("completed_at"),
                     meta.get("error"),
                     json.dumps(meta),

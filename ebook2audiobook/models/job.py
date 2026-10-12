@@ -11,7 +11,7 @@ crashed or stopped run can resume without redoing finished stages.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 
@@ -40,6 +40,11 @@ class ConversionMode(StrEnum):
     MULTI_VOICE = "multi_voice"
 
 
+def _utc_now() -> datetime:
+    """Return timezone-aware current UTC time."""
+    return datetime.now(UTC)
+
+
 class Job(BaseModel):
     """
     One conversion job: from file upload to audiobook output.
@@ -58,8 +63,8 @@ class Job(BaseModel):
         description="Name of the stage currently executing.",
     )
     stage_status: StageStatus = StageStatus.PENDING
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_utc_now)
+    updated_at: datetime = Field(default_factory=_utc_now)
     error: str | None = Field(
         default=None,
         description="Last error message, if any.",

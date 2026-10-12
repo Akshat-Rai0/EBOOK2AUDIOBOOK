@@ -1,16 +1,18 @@
 """
 Audio processing pipeline: pause insertion, loudness normalisation, and concatenation.
 
-**Standards:**
-- Loudness: -18.0 LUFS target (EBU R128 standard commonly used for spoken podcasts/audiobooks).
+**Standards & Processing:**
+- Level: Peak scaling to -18.0 dBFS target (pure Python sample-based peak normalization;
+  EBU R128 LUFS evaluation is deferred to benchmark work).
 - Pause duration:
   - Sentence pause: ~300 ms silence.
   - Paragraph pause: ~700 ms silence.
   - Chapter boundary pause: ~1500 ms silence.
+  - Split sentence pieces (e.g. s00a, s00b): ~150 ms silence.
 
 **FFmpeg integration:**
-Uses `pydub` (wrapping ffmpeg) when available, and standard library `wave`/`audioop`
-fallback for raw PCM audio concatenation when running in restricted environments.
+Uses standard library `wave` for raw PCM audio concatenation and peak scaling,
+allowing offline execution without external dependencies.
 """
 
 from __future__ import annotations

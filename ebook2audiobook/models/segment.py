@@ -4,17 +4,18 @@ Pydantic models for Segment — the atomic unit of the TTS synthesis pipeline.
 A Segment is one span of text spoken by exactly one speaker.  It is created
 from a Paragraph by the attribution agent and consumed by the TTS agent.
 
-Data contract (version 1.1 - M4):
+Data contract (version 1.2 - M4):
 
-  id          — ``c<CC>-p<PPP>-s<SS>`` (chapter / paragraph / segment indices).
-  speaker_id  — canonical character ID, ``"narrator"``, or ``"unknown"``.
-  speaker     — alias for speaker_id (retained for backward compatibility).
-  kind        — dialogue | narration | thought  (drives voice-acting style).
-  confidence  — 0.0 to 1.0 (LLM attribution certainty, 1.0 for rule/user).
-  source      — llm | rule | user  (user edits are authoritative and locked).
-  evidence    — optional short text snippet explaining attribution.
-  voice_hash  — SHA-256 hash of (text + voice_id) for selective cache invalidation.
-  status      — pending → running → done | failed | skipped.
+  id                  — ``c<CC>-p<PPP>-s<SS>`` (chapter / paragraph / segment indices).
+  speaker_id          — canonical character ID, ``"narrator"``, or ``"unknown"``.
+  speaker             — alias for speaker_id (retained for backward compatibility).
+  kind                — dialogue | narration | thought  (drives voice-acting style).
+  confidence          — 0.0 to 1.0 (LLM attribution certainty, 1.0 for rule/user).
+  source              — llm | rule | user  (user edits are authoritative and locked).
+  evidence            — optional short text snippet explaining attribution.
+  voice_hash          — SHA-256 hash of (text + voice_id) for selective cache invalidation.
+  continues_previous  — True if this dialogue segment continues a multi-paragraph quote.
+  status              — pending → running → done | failed | skipped.
 """
 
 from __future__ import annotations
@@ -96,6 +97,10 @@ class Segment(BaseModel):
         default=None,
         description="SHA-256 hash of text + voice_id for cache validation.",
     )
+    continues_previous: bool = Field(
+        default=False,
+        description="True if this dialogue segment continues a multi-paragraph quote.",
+    )
     text: str = Field(..., description="Text to synthesise, after TTS-safe cleaning.")
     status: SegmentStatus = SegmentStatus.PENDING
     audio_path: str | None = Field(
@@ -103,7 +108,7 @@ class Segment(BaseModel):
         description="Absolute path to the generated WAV file, set when status=done.",
     )
     retry_count: int = Field(default=0, description="Number of synthesis retries so far.")
-    schema_version: str = Field(default="1.1")
+    schema_version: str = Field(default="1.2")
 
     @model_validator(mode="after")
     def _sync_speaker_fields(self) -> Self:

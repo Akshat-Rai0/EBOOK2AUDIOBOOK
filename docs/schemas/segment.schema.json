@@ -105,6 +105,12 @@
       "description": "SHA-256 hash of text + voice_id for cache validation.",
       "title": "Voice Hash"
     },
+    "continues_previous": {
+      "default": false,
+      "description": "True if this dialogue segment continues a multi-paragraph quote.",
+      "title": "Continues Previous",
+      "type": "boolean"
+    },
     "text": {
       "description": "Text to synthesise, after TTS-safe cleaning.",
       "title": "Text",
@@ -134,7 +140,7 @@
       "type": "integer"
     },
     "schema_version": {
-      "default": "1.1",
+      "default": "1.2",
       "title": "Schema Version",
       "type": "string"
     }

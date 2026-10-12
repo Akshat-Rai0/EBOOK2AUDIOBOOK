@@ -246,6 +246,7 @@ def convert(project: str, engine: str, device: str) -> None:
         castbook convert --project dracula
     """
     from ebook2audiobook.models.book import Book
+    from ebook2audiobook.models_manager.manager import ModelManager
     from ebook2audiobook.orchestrator.pipeline import PipelineOrchestrator
     from ebook2audiobook.tts import get_engine
 
@@ -262,9 +263,15 @@ def convert(project: str, engine: str, device: str) -> None:
 
     book = Book.model_validate_json(book_json_path.read_text(encoding="utf-8"))
 
+    model_manager = ModelManager.instance()
+
     # Initialise selected TTS engine via factory
     try:
-        tts_engine = get_engine(engine.lower(), device=device.lower())
+        tts_engine = get_engine(
+            engine.lower(),
+            device=device.lower(),
+            model_manager=model_manager,
+        )
     except Exception as exc:
         click.secho(f"Error loading TTS engine: {exc}", fg="red")
         sys.exit(1)
@@ -275,7 +282,11 @@ def convert(project: str, engine: str, device: str) -> None:
     click.echo(f"  Device   : {device}")
     click.echo("")
 
-    orchestrator = PipelineOrchestrator(project_dir=project_dir, tts_engine=tts_engine)
+    orchestrator = PipelineOrchestrator(
+        project_dir=project_dir,
+        tts_engine=tts_engine,
+        model_manager=model_manager,
+    )
 
     last_reported = 0
 
@@ -330,8 +341,8 @@ def attribute(project: str, model: str, ollama_url: str, override: bool) -> None
     """
     Run speaker attribution on projects/<project>/book.json using a local Ollama LLM.
 
-    Reads book.json, processes each paragraph that contains dialogue, and writes
-    projects/<project>/attribution.json with per-span speaker labels.
+    Reads book.json, processes each paragraph that contains dialogue using AttributionStage,
+    and writes projects/<project>/attribution.json with per-span speaker labels.
 
     Ollama must be running before you call this command:
         ollama serve
@@ -343,11 +354,15 @@ def attribute(project: str, model: str, ollama_url: str, override: bool) -> None
     import json
 
     from ebook2audiobook.attribution import AttributionError, CharacterRegistry, OllamaAttributor
+    from ebook2audiobook.attribution.stage import AttributionStage
     from ebook2audiobook.models.book import Book
+    from ebook2audiobook.models.job import Job
+    from ebook2audiobook.store.db import JobDatabase
 
     project_dir = Path("projects") / project
     book_json_path = project_dir / "book.json"
     attribution_path = project_dir / "attribution.json"
+    db_path = project_dir / "state.sqlite"
 
     if not book_json_path.exists():
         click.secho(
@@ -378,48 +393,56 @@ def attribute(project: str, model: str, ollama_url: str, override: bool) -> None
         click.secho(f"\n✗ {exc}", fg="red")
         sys.exit(1)
 
-    attributed_chapters = []
+    # Use AttributionStage instead of direct loop (unifies CLI and stage paths)
+    db = JobDatabase(db_path)
+    db.init_schema()
+    job = Job(
+        id=f"{project}-attribution",
+        book_id=book.id,
+        project_name=project,
+        current_stage="attribution",
+    )
+
+    def on_progress(done: int, total: int) -> None:
+        pct = (done / total * 100) if total else 100.0
+        click.echo(f"\r  Progress: [{done}/{total}] {pct:5.1f}%   ", nl=False)
+
+    stage = AttributionStage(db=db, attributor=attributor, registry=registry)
+
+    try:
+        segments = stage.run(book=book, job=job, progress_callback=on_progress)
+        click.echo("")
+    except Exception as exc:
+        click.secho(f"\n✗ Attribution failed: {exc}", fg="red")
+        sys.exit(1)
+
+    # Export to attribution.json (legacy format for compatibility)
+    # Group segments by chapter and paragraph
+    chapters_data = []
     total_spans = 0
     unknown_spans = 0
 
     for ch_idx, chapter in enumerate(book.chapters):
-        ch_title = chapter.title or f"Chapter {ch_idx + 1}"
-        click.echo(f"  Chapter {ch_idx + 1}/{book.chapter_count}: {ch_title}")
-
-        attributed_paragraphs = []
-        context = ""
-        cast_so_far = registry.character_names()
-
+        paragraphs_data = []
         for para in chapter.paragraphs:
-            spans = attributor.attribute(
-                paragraph=para.text,
-                cast_so_far=cast_so_far,
-                context=context,
-            )
-            # Register all speakers with the registry.
-            for span in spans:
-                speaker = registry.resolve(span["speaker"])
-                span["speaker"] = speaker
-                registry.record_mention(speaker)
-
-            attributed_paragraphs.append(
+            para_segments = [s for s in segments if s.paragraph_id == para.id]
+            spans = [
                 {
-                    "paragraph_id": para.id,
-                    "spans": spans,
+                    "text": s.text,
+                    "speaker": s.speaker,
+                    "kind": s.kind.value,
                 }
-            )
+                for s in para_segments
+            ]
+            paragraphs_data.append({"paragraph_id": para.id, "spans": spans})
             total_spans += len(spans)
             unknown_spans += sum(1 for s in spans if s["speaker"] == "unknown")
-            # Last paragraph becomes context for the next call.
-            context = para.text
-            # Update cast list after each paragraph.
-            cast_so_far = registry.character_names()
 
-        attributed_chapters.append(
+        chapters_data.append(
             {
                 "chapter_index": ch_idx,
                 "title": chapter.title,
-                "paragraphs": attributed_paragraphs,
+                "paragraphs": paragraphs_data,
             }
         )
 
@@ -427,7 +450,7 @@ def attribute(project: str, model: str, ollama_url: str, override: bool) -> None
         "book_title": book.title,
         "model": model,
         "characters": registry.summary(),
-        "chapters": attributed_chapters,
+        "chapters": chapters_data,
         "stats": {
             "total_spans": total_spans,
             "unknown_spans": unknown_spans,
@@ -447,6 +470,303 @@ def attribute(project: str, model: str, ollama_url: str, override: bool) -> None
             fg="yellow",
         )
     click.echo(f"  attribution.json → {attribution_path}")
+
+
+# ---------------------------------------------------------------------------
+# castbook cast
+# ---------------------------------------------------------------------------
+
+
+@cli.group()
+def cast() -> None:
+    """Manage character casting and voice assignment."""
+    pass
+
+
+@cast.command()
+@click.option(
+    "--project",
+    "-p",
+    required=True,
+    help="Project name in projects/<project>/.",
+)
+def build(project: str) -> None:
+    """
+    Build a cast seed list using NER before attribution.
+
+    Runs spaCy NER over the book text to find characters with >=3 mentions.
+    Writes projects/<project>/cast_seed.json for manual editing.
+    """
+    from ebook2audiobook.attribution.cast_builder import build_cast_seed
+    from ebook2audiobook.models.book import Book
+
+    project_dir = Path("projects") / project
+    book_json_path = project_dir / "book.json"
+    cast_seed_path = project_dir / "cast_seed.json"
+
+    if not book_json_path.exists():
+        click.secho(
+            f"Error: {book_json_path} not found.\n"
+            f"Run 'castbook ingest <file> --project {project}' first.",
+            fg="red",
+        )
+        sys.exit(1)
+
+    book = Book.model_validate_json(book_json_path.read_text(encoding="utf-8"))
+
+    click.echo(f"  Building cast seed for: {book.title}")
+    click.echo(f"  Chapters: {book.chapter_count}")
+    click.echo("")
+
+    try:
+        seeds = build_cast_seed(book, min_mentions=3)
+    except Exception as exc:
+        click.secho(f"Error building cast seed: {exc}", fg="red")
+        sys.exit(1)
+
+    # Convert to the format expected by cast_seed.json
+    from ebook2audiobook.attribution.cast_builder import CastSeedFile
+
+    seed_data = CastSeedFile(
+        characters=[
+            {"name": seed.name, "aliases": seed.aliases} for seed in seeds
+        ]
+    )
+
+    cast_seed_path.write_text(seed_data.model_dump_json(indent=2), encoding="utf-8")
+
+    click.echo("")
+    click.secho("✓ Cast seed built!", fg="green")
+    click.echo(f"  Characters found: {len(seeds)}")
+    for seed in seeds[:10]:  # Show first 10
+        click.echo(f"    - {seed.name} ({seed.mention_count} mentions)")
+    if len(seeds) > 10:
+        click.echo(f"    ... and {len(seeds) - 10} more")
+    click.echo(f"  cast_seed.json → {cast_seed_path}")
+    click.echo("")
+    click.echo("You can now edit cast_seed.json to add nicknames or remove characters.")
+    click.echo("Then run: castbook attribute --project <project>")
+
+
+@cast.command()
+@click.option("--project", "-p", required=True, help="Project name.")
+def show(project: str) -> None:
+    """Show cast table with line counts, profiles, and assigned voices."""
+    from ebook2audiobook.casting.service import load_cast
+
+    project_dir = Path("projects") / project
+    cast_obj = load_cast(project_dir)
+    if cast_obj is None:
+        click.secho(
+            f"No cast.json found in {project_dir}. Run 'castbook cast suggest' first.",
+            fg="yellow",
+        )
+        return
+
+    click.echo(f"\nVoice Cast for {project}:")
+    header = f"{'Speaker':<20} {'Lines':<8} {'Gender':<12} {'Age':<12} {'Voice':<15} {'Locked'}"
+    click.echo(header)
+    click.echo("-" * 75)
+    for spk in cast_obj.all_speakers():
+        v_str = str(spk.voice) if spk.voice else "-"
+        g_str = f"{spk.profile.gender}{' (v)' if spk.profile.gender_confidence >= 1.0 else ''}"
+        a_str = f"{spk.profile.age_bracket}{' (v)' if spk.profile.age_confidence >= 1.0 else ''}"
+        locked_str = "yes" if spk.user_locked else "no"
+        row_str = (
+            f"{spk.name:<20} {spk.line_count:<8} {g_str:<12} "
+            f"{a_str:<12} {v_str:<15} {locked_str}"
+        )
+        click.echo(row_str)
+    click.echo("")
+
+
+@cast.command()
+@click.option("--project", "-p", required=True, help="Project name.")
+@click.option("--engine", "-e", default="fake", help="TTS engine (fake, vits, xtts).")
+def suggest(project: str, engine: str) -> None:
+    """Run automated voice suggestion algorithm."""
+    from ebook2audiobook.casting.service import suggest_cast
+
+    project_dir = Path("projects") / project
+    try:
+        cast_obj = suggest_cast(project_dir, engine=engine)
+        count = len(cast_obj.characters)
+        click.secho(f"✓ Suggested voices assigned for {count} characters ({engine}).", fg="green")
+        click.echo(f"  Saved to {project_dir / 'cast.json'}")
+    except Exception as exc:
+        click.secho(f"Error during cast suggestion: {exc}", fg="red")
+        sys.exit(1)
+
+
+@cast.command()
+@click.argument("project")
+@click.argument("character")
+@click.argument("voice_id")
+@click.option("--engine", "-e", default="fake", help="TTS engine.")
+def voice(project: str, character: str, voice_id: str, engine: str) -> None:
+    """Assign specific voice to a character (locks voice assignment)."""
+    from ebook2audiobook.casting.service import set_character_voice
+
+    project_dir = Path("projects") / project
+    try:
+        char = set_character_voice(project_dir, character, voice_id, engine=engine)
+        click.secho(f"✓ Assigned {char.name} → {voice_id} ({engine}) [user_locked]", fg="green")
+    except Exception as exc:
+        click.secho(f"Error assigning voice: {exc}", fg="red")
+        sys.exit(1)
+
+
+@cast.command()
+@click.argument("project")
+@click.argument("source")
+@click.argument("target")
+def merge(project: str, source: str, target: str) -> None:
+    """Merge source character into target character transactionally."""
+    from ebook2audiobook.casting.service import merge_characters
+
+    project_dir = Path("projects") / project
+    try:
+        winner, _ = merge_characters(project_dir, source, target)
+        msg = f"✓ Merged {source} into {winner.name} (now {winner.line_count} lines)."
+        click.secho(msg, fg="green")
+    except Exception as exc:
+        click.secho(f"Error merging characters: {exc}", fg="red")
+        sys.exit(1)
+
+
+@cast.command()
+@click.argument("project")
+@click.argument("character")
+@click.argument("new_name")
+def rename(project: str, character: str, new_name: str) -> None:
+    """Rename a character's display name."""
+    from ebook2audiobook.casting.service import rename_character
+
+    project_dir = Path("projects") / project
+    try:
+        char = rename_character(project_dir, character, new_name)
+        click.secho(f"✓ Renamed {character} → {char.display_name}", fg="green")
+    except Exception as exc:
+        click.secho(f"Error renaming character: {exc}", fg="red")
+        sys.exit(1)
+
+
+@cast.command()
+@click.argument("project")
+def undo(project: str) -> None:
+    """Undo the last merge or rename operation."""
+    from ebook2audiobook.casting.service import undo_last_operation
+
+    project_dir = Path("projects") / project
+    rec = undo_last_operation(project_dir)
+    if rec:
+        click.secho(f"✓ Reverted last {rec.get('action')} operation.", fg="green")
+    else:
+        click.echo("Nothing to undo.")
+
+
+@cast.command()
+@click.option("--project", "-p", required=True, help="Project name.")
+@click.option("--auto", is_flag=True, help="Accept all suggestions and route unknown to narrator.")
+def approve(project: str, auto: bool) -> None:
+    """Approve voice cast and record integrity hash."""
+    from ebook2audiobook.casting.service import approve_cast
+
+    project_dir = Path("projects") / project
+    try:
+        h = approve_cast(project_dir, auto=auto)
+        click.secho(f"✓ Cast approved! Integrity hash: {h[:12]}…", fg="green")
+    except Exception as exc:
+        click.secho(f"Error approving cast: {exc}", fg="red")
+        sys.exit(1)
+
+
+@cast.command()
+@click.argument("project")
+@click.argument("character")
+def sample(project: str, character: str) -> None:
+    """Synthesize a short audio sample for a character in their assigned voice."""
+    from ebook2audiobook.casting.service import load_cast
+    from ebook2audiobook.models.cast import VoiceRef
+    from ebook2audiobook.tts.fake_tts import FakeTTS
+
+    project_dir = Path("projects") / project
+    cast_obj = load_cast(project_dir)
+    if cast_obj is None:
+        click.secho("No cast.json found.", fg="red")
+        sys.exit(1)
+
+    char = cast_obj.get_character(character)
+    if char is None:
+        click.secho(f"Character {character!r} not found.", fg="red")
+        sys.exit(1)
+
+    samples_dir = project_dir / "samples"
+    samples_dir.mkdir(parents=True, exist_ok=True)
+    out_wav = samples_dir / f"{char.id}.wav"
+
+    tts = FakeTTS(mode="tone")
+    v_ref = char.voice or VoiceRef(engine="fake", voice_id="fake-narrator")
+    wav_bytes = tts.synthesize(f"Hello, this is a sample line for {char.name}.", v_ref)
+    out_wav.write_bytes(wav_bytes)
+
+    click.secho(f"✓ Sample generated: {out_wav}", fg="green")
+
+
+@cast.command()
+@click.option("--project", "-p", required=True, help="Project name.")
+def review(project: str) -> None:
+    """Review unknown and low-confidence dialogue segments interactively."""
+    from ebook2audiobook.config import get_review_confidence_threshold
+    from ebook2audiobook.models.segment import SegmentSource
+    from ebook2audiobook.store.db import JobDatabase
+
+    project_dir = Path("projects") / project
+    db_path = project_dir / "state.sqlite"
+    if not db_path.exists():
+        click.secho(f"No state.sqlite found in {project_dir}.", fg="red")
+        sys.exit(1)
+
+    db = JobDatabase(db_path)
+    threshold = get_review_confidence_threshold()
+
+    with db._connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, speaker_id, text, confidence, source
+            FROM segments
+            WHERE kind = 'dialogue' AND (speaker_id = 'unknown' OR confidence < ?)
+            ORDER BY id ASC;
+            """,
+            (threshold,),
+        ).fetchall()
+
+    if not rows:
+        click.secho("✓ No low-confidence or unknown segments need review!", fg="green")
+        return
+
+    click.echo(f"Found {len(rows)} segments to review (threshold < {threshold:.2f}):\n")
+    for r in rows:
+        header_str = (
+            f"Segment [{r['id']}] (current speaker: {r['speaker_id']}, "
+            f"conf: {r['confidence']:.2f}):"
+        )
+        click.echo(header_str)
+        click.echo(f"  \"{r['text']}\"")
+        new_spk = click.prompt(
+            "  Enter speaker name (or press Enter to skip)",
+            default="",
+            show_default=False,
+        )
+        if new_spk.strip():
+            db.update_segment_speaker(
+                r["id"],
+                new_spk.strip(),
+                source=SegmentSource.USER,
+                confidence=1.0,
+            )
+            click.secho(f"  Updated → {new_spk.strip()} (source=user)", fg="green")
+        click.echo("")
 
 
 # ---------------------------------------------------------------------------
@@ -643,7 +963,7 @@ def _update_manifest(
 ) -> None:
     """Update the models manifest with downloaded model info."""
     import json
-    from datetime import datetime
+    from datetime import UTC, datetime
 
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -656,7 +976,7 @@ def _update_manifest(
         "path": str(models_dir),
         "size": size,
         "licence": licence,
-        "downloaded_at": datetime.utcnow().isoformat() + "Z",
+        "downloaded_at": datetime.now(UTC).isoformat(),
     }
 
     with open(manifest_path, "w") as f:

@@ -14,6 +14,7 @@ uv.lock          # committed — do NOT ignore
 
 # Runtime project data (book content must not enter the repo)
 projects/
+book/
 
 # IDE
 .idea/
@@ -38,3 +39,5 @@ htmlcov/
 
 # Logs
 *.log
+Archive.zip
+models_test_output.txt

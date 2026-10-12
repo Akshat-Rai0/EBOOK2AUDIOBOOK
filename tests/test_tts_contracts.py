@@ -66,9 +66,9 @@ class TestVITSContract:
 
     @pytest.fixture(autouse=True)
     def skip_if_no_coqui(self):
-        try:
-            from ebook2audiobook.tts.vits import VITS
-        except ImportError:
+        import importlib.util
+
+        if importlib.util.find_spec("TTS") is None:
             pytest.skip("coqui-tts not installed")
 
     def test_engine_name_property(self):
@@ -81,7 +81,7 @@ class TestVITSContract:
         from ebook2audiobook.tts.vits import VITS
 
         engine = VITS(device="cpu")
-        assert engine.max_chars == 400
+        assert engine.max_chars == 500  # decided in DECISIONS.md; update both if it changes
 
     def test_sample_rate_property(self):
         from ebook2audiobook.tts.vits import VITS
@@ -126,7 +126,10 @@ class TestVITSContract:
 
         engine = VITS(device="cpu")
         with pytest.raises(ValueError, match="exceeds"):
-            engine.synthesize("x" * 401, VoiceRef(engine="vits", voice_id="p225"))
+            engine.synthesize(
+                "x" * (engine.max_chars + 1),
+                VoiceRef(engine="vits", voice_id="p225"),
+            )
 
     def test_empty_text_raises(self):
         from ebook2audiobook.tts.vits import VITS
@@ -150,9 +153,9 @@ class TestXTTSContract:
 
     @pytest.fixture(autouse=True)
     def skip_if_no_coqui(self):
-        try:
-            from ebook2audiobook.tts.xtts import XTTS
-        except ImportError:
+        import importlib.util
+
+        if importlib.util.find_spec("TTS") is None:
             pytest.skip("coqui-tts not installed")
 
     def test_engine_name_property(self):

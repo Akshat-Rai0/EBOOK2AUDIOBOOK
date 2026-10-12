@@ -1,8 +1,8 @@
 # M2b plan: real TTS engines, ModelManager, benchmark, loudness
 
 **Milestone:** M2b (real synthesis on top of the M2 narrator pipeline)
-**Branch:** `m2b-real-tts` (created 2026-10-03 from `m4-casting-multivoice` after the profiler and registry commits)
-**Status:** IN PROGRESS — core implementation complete, benchmark/loudness pending approval
+**Branch:** `m2b-real-tts` (merged into `m4-casting-multivoice`)
+**Status:** COMPLETE (Core synthesis & ModelManager wired into pipeline; benchmark/loudness evaluation pending approval)
 **Machine (target):** Apple Silicon, 16 GB unified memory, CPU or MPS
 
 This plan is the Week 6 TTS evaluation from `docs/project_document.md`, implemented against the existing M2 pipeline. It does **not** implement M4 casting, multi-voice synthesis, or the web UI.
@@ -310,8 +310,8 @@ Matches the requested commit sequence:
 - [ ] loudness harness → stop for user decision on A/B/C
 - [ ] chosen loudness → implementation after decision
 - [ ] doctor updates → lame/aac encoder flags
-- [ ] docs → DECISIONS.md, LICENSES.md updates
-- [ ] datetime → separate datetime.utcnow() → timezone-aware (future work)
+- [x] docs → DECISIONS.md, LICENSES.md updates
+- [x] datetime → separate datetime.utcnow() → timezone-aware datetime.now(UTC)
 
 README still says “Quick start (M0/M1)” and describes real XTTS/VITS synthesis as if it existed. Update after wiring.
 

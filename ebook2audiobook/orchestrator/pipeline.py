@@ -25,6 +25,7 @@ from ebook2audiobook.models.book import Book
 from ebook2audiobook.models.cast import VoiceRef
 from ebook2audiobook.models.job import ConversionMode, Job, StageStatus
 from ebook2audiobook.models.segment import Segment, SegmentKind, SegmentStatus
+from ebook2audiobook.models_manager.manager import ModelManager
 from ebook2audiobook.store.db import JobDatabase
 from ebook2audiobook.tts.engine import TTSEngine
 
@@ -39,7 +40,22 @@ class PipelineOrchestrator:
         project_dir: Path,
         tts_engine: TTSEngine,
         mode: ConversionMode = ConversionMode.NARRATOR_ONLY,
+        model_manager: ModelManager | None = None,
     ) -> None:
+        """
+        Parameters
+        ----------
+        project_dir:
+            Directory for all project artefacts (audio, SQLite, output).
+        tts_engine:
+            Pre-constructed TTS engine to use for synthesis.
+        mode:
+            Conversion mode (narrator_only or multi_voice).
+        model_manager:
+            Optional shared ModelManager singleton.  When provided, synthesis
+            registers the engine with the manager so that an attribution LLM
+            cannot be loaded while TTS is active (the "single booth" contract).
+        """
         self.project_dir = Path(project_dir)
         self.audio_dir = self.project_dir / "audio"
         self.output_dir = self.project_dir / "output"
@@ -51,8 +67,28 @@ class PipelineOrchestrator:
 
         self.tts = tts_engine
         self.mode = mode
+        self.model_manager = model_manager
         self.processor = AudioProcessor(sample_rate=self.tts.sample_rate)
         self.exporter = AudioExporter()
+
+        # Hardware tier guard: multi_voice mode requires >= 8 GB RAM
+        if self.mode == ConversionMode.MULTI_VOICE:
+            from ebook2audiobook.utils.env import (
+                compute_tier,
+                get_free_disk_gib,
+                get_gpu_info,
+                get_ram_gib,
+            )
+
+            ram = get_ram_gib()
+            gpu = get_gpu_info()
+            disk = get_free_disk_gib(self.project_dir)
+            tier = compute_tier(ram, gpu, disk)
+            if tier not in ("multi_voice", "unknown"):
+                raise RuntimeError(
+                    f"Hardware tier '{tier}' insufficient for multi-voice mode "
+                    "(requires >= 8 GB RAM). Use narrator-only mode instead."
+                )
 
     def run_narrator_pipeline(
         self,
@@ -89,7 +125,11 @@ class PipelineOrchestrator:
         # Stage 2: Synthesis (with per-segment resume support)
         job.current_stage = "synthesis"
         self.db.save_job(job)
-        self._synthesize_segments(progress_callback=progress_callback)
+        if self.model_manager is not None and self.tts.engine_name != "fake":
+            with self.model_manager.load(self.tts.engine_name, lambda: self.tts):
+                self._synthesize_segments(progress_callback=progress_callback)
+        else:
+            self._synthesize_segments(progress_callback=progress_callback)
 
         # Stage 3: Audio Assembly per chapter
         job.current_stage = "assembly"
@@ -120,9 +160,12 @@ class PipelineOrchestrator:
         # Get normalizer if not FakeTTS
         if self.tts.engine_name != "fake":
             from ebook2audiobook.tts.normalise import normalise_for_synthesis
+
             normalizer = normalise_for_synthesis
         else:
-            normalizer = lambda x: x
+
+            def normalizer(text: str) -> str:
+                return text
 
         for ch in book.chapters:
             for para in ch.paragraphs:
@@ -165,7 +208,7 @@ class PipelineOrchestrator:
                                 )
                             )
                         sub_idx += 1
-        return segments
+        return [s for s in segments if s.text and s.text.strip()]
 
     def _synthesize_segments(
         self,
@@ -185,6 +228,11 @@ class PipelineOrchestrator:
         durations: list[float] = []
 
         for seg in pending:
+            if not seg.text or not seg.text.strip():
+                self.db.update_segment_status(seg.id, SegmentStatus.DONE)
+                done_count += 1
+                continue
+
             t0 = time.time()
             self.db.update_segment_status(seg.id, SegmentStatus.RUNNING)
 

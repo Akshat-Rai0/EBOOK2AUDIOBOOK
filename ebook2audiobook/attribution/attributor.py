@@ -19,6 +19,16 @@ This is logged as a warning, not silently dropped.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+
+
+@dataclass
+class QuoteAttribution:
+    """Attribution for a single quote (V2 ID-based attribution)."""
+
+    quote_id: str  # e.g., "Q1", "Q2"
+    speaker_id: str  # e.g., "harry", "narrator", "unknown"
+    confidence: float  # 0.0 to 1.0
 
 
 class Attributor(ABC):
@@ -32,7 +42,7 @@ class Attributor(ABC):
         context: str = "",
     ) -> list[dict]:
         """
-        Attribute each span of *paragraph* to a speaker.
+        Attribute each span of *paragraph* to a speaker (V1 legacy).
 
         Parameters
         ----------
@@ -59,6 +69,33 @@ class Attributor(ABC):
             Temporary failures (bad JSON) are handled internally with retries
             and narrator fallback; they do NOT raise.
         """
+
+    def attribute_quotes(
+        self,
+        marked_paragraph: str,
+        allowed_speakers: list[str],
+    ) -> list[QuoteAttribution]:
+        """
+        Attribute each marked quote to a speaker (V2 ID-based).
+
+        Parameters
+        ----------
+        marked_paragraph:
+            Paragraph text with quote markers like [Q1], [Q2].
+        allowed_speakers:
+            List of allowed speaker IDs (closed set).
+
+        Returns
+        -------
+        list[QuoteAttribution]
+            Attribution for each quote.
+
+        Note
+        ----
+        Default implementation returns empty list.  Concrete classes
+        should override this method for V2 attribution.
+        """
+        return []
 
 
 class AttributionError(RuntimeError):

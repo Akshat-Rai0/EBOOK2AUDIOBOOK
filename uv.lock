@@ -726,10 +726,16 @@ tts = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "librosa", version = "0.11.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "librosa", version = "1.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "reportlab" },
     { name = "ruff" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "tomli-w" },
 ]
 
@@ -761,10 +767,13 @@ provides-extras = ["tts"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "librosa", specifier = ">=0.10" },
+    { name = "numpy", specifier = ">=1.24" },
     { name = "pytest", specifier = ">=8.2" },
     { name = "pytest-cov", specifier = ">=5.0" },
     { name = "reportlab", specifier = ">=4.2" },
     { name = "ruff", specifier = ">=0.4" },
+    { name = "scipy", specifier = ">=1.10" },
     { name = "tomli-w", specifier = ">=1.0" },
 ]
 

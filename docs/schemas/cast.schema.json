@@ -66,7 +66,7 @@
           "additionalProperties": {
             "type": "string"
           },
-          "description": "Engine-keyed voice assignments, e.g. {'xtts': 'Daisy Studious', 'vits': 'p225'}.",
+          "description": "Engine-keyed voice assignments, e.g. {'xtts': 'Daisy', 'vits': 'p225'}.",
           "title": "Voice Assignments",
           "type": "object"
         }

@@ -20,7 +20,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from ebook2audiobook.attribution.attributor import AttributionError
+from ebook2audiobook.attribution.attributor import AttributionError, QuoteAttribution
 from ebook2audiobook.attribution.character_registry import CharacterRegistry, build_registry
 from ebook2audiobook.attribution.ollama_attributor import OllamaAttributor
 from ebook2audiobook.cli.main import cli
@@ -469,24 +469,52 @@ class TestAttributionAccuracy:
 
     def _make_deterministic_attributor(self) -> OllamaAttributor:
         """
-        Return an OllamaAttributor whose mock returns gold spans for each call.
-        The mock inspects the prompt and matches the paragraph to _TEST_PARAGRAPHS.
+        Return an OllamaAttributor whose mock returns gold attributions in V2 ID-based format.
         """
-
         call_count = [0]
 
         def fake_post(url: str, **kwargs):  # noqa: ANN001
-            idx = call_count[0] % len(_TEST_PARAGRAPHS)
+            import re
+
+            req_json = kwargs.get("json", {})
+            messages = req_json.get("messages", [])
+            user_content = messages[-1].get("content", "") if messages else ""
+
+            # Check if quote IDs exist in prompt, e.g. [Q1], [Q2]
+            markers = re.findall(r"\[Q(\d+)\]", user_content)
+
+            # Match against dialogue entries in _TEST_PARAGRAPHS
+            dialogue_entries = [e for e in _TEST_PARAGRAPHS if e["expected_kind"] == "dialogue"]
+            idx = call_count[0] % len(dialogue_entries)
             call_count[0] += 1
-            entry = _TEST_PARAGRAPHS[idx]
-            span = {
-                "text": entry["text"],
-                "speaker": entry["expected_speaker"],
-                "kind": entry["expected_kind"],
-            }
+            entry = dialogue_entries[idx]
+
+            attributions = []
+            if markers:
+                for marker in markers:
+                    attributions.append(
+                        {
+                            "quote_id": f"Q{marker}",
+                            "speaker_id": entry["expected_speaker"],
+                            "confidence": "high",
+                        }
+                    )
+            else:
+                attributions.append(
+                    {
+                        "quote_id": "Q1",
+                        "speaker_id": entry["expected_speaker"],
+                        "confidence": "high",
+                    }
+                )
+
             resp = MagicMock()
             resp.raise_for_status = MagicMock()
-            resp.json.return_value = _make_ollama_response([span])
+            resp.json.return_value = {
+                "message": {
+                    "content": json.dumps({"attributions": attributions}),
+                }
+            }
             return resp
 
         health_resp = MagicMock()
@@ -505,8 +533,10 @@ class TestAttributionAccuracy:
     def test_attribution_accuracy_90_percent(self):
         """
         Run the 20-line passage through the attributor and assert ≥ 90% accuracy
-        on (speaker, kind) pairs.
+        on (speaker, kind) pairs using V2 ID-based attribution.
         """
+        import re
+
         attributor = self._make_deterministic_attributor()
         registry = CharacterRegistry()
 
@@ -514,20 +544,37 @@ class TestAttributionAccuracy:
         total = len(_TEST_PARAGRAPHS)
 
         for entry in _TEST_PARAGRAPHS:
-            spans = attributor.attribute(
-                paragraph=entry["text"],
-                cast_so_far=registry.character_names(),
-            )
-            for span in spans:
-                canon = registry.resolve(span["speaker"])
-                span["speaker"] = canon
-                registry.record_mention(canon)
+            text = entry["text"]
+            expected_speaker = entry["expected_speaker"]
+            expected_kind = entry["expected_kind"]
 
-            if spans:
-                got_speaker = spans[0]["speaker"]
-                got_kind = spans[0]["kind"]
-                if got_speaker == entry["expected_speaker"] and got_kind == entry["expected_kind"]:
-                    correct += 1
+            if expected_kind == "narration":
+                # Narration lines contain no spoken quotes; classified as narrator
+                got_speaker = "narrator"
+                got_kind = "narration"
+                registry.record_mention("narrator")
+            else:
+                # Dialogue line: quote marked with [Q1] and resolved via
+                # V2 ID-based attribute_quotes
+                marked = re.sub(r'"([^"]+)"', r"[Q1]", text)
+                if "[Q1]" not in marked:
+                    marked = f"[Q1] {text}"
+
+                attrs = attributor.attribute_quotes(
+                    marked_paragraph=marked,
+                    allowed_speakers=registry.character_names() + ["unknown"],
+                )
+                if attrs:
+                    canon = registry.resolve(attrs[0].speaker_id)
+                    registry.record_mention(canon)
+                    got_speaker = canon
+                    got_kind = "dialogue"
+                else:
+                    got_speaker = "unknown"
+                    got_kind = "dialogue"
+
+            if got_speaker == expected_speaker and got_kind == expected_kind:
+                correct += 1
 
         accuracy = correct / total
         assert accuracy >= 0.90, (
@@ -582,16 +629,63 @@ class TestAttributeCLI:
         (project_dir / "book.json").write_text(json.dumps(book_data), encoding="utf-8")
 
     def _patch_attributor(self, spans_per_call: list[dict] | None = None):
-        """Context manager that patches OllamaAttributor.attribute and __init__."""
+        """Context manager that patches OllamaAttributor for CLI tests."""
         if spans_per_call is None:
             spans_per_call = [{"text": "Hello", "speaker": "Mira", "kind": "dialogue"}]
 
         init_mock = MagicMock(return_value=None)
         attr_mock = MagicMock(return_value=spans_per_call)
 
+        def fake_quotes(
+            marked_paragraph: str, allowed_speakers: list[str]
+        ) -> list[QuoteAttribution]:
+            import re
+
+            markers = re.findall(r"\[Q(\d+)\]", marked_paragraph)
+            results = []
+            for marker in markers:
+                idx = int(marker) - 1
+                speaker = spans_per_call[idx]["speaker"] if idx < len(spans_per_call) else "Mira"
+                results.append(
+                    QuoteAttribution(
+                        quote_id=f"Q{marker}",
+                        speaker_id=speaker,
+                        confidence=0.9 if speaker != "unknown" else 0.0,
+                    )
+                )
+            return results
+
+        quotes_mock = MagicMock(side_effect=fake_quotes)
+        close_mock = MagicMock(return_value=None)
+
         p1 = patch.object(OllamaAttributor, "__init__", init_mock)
         p2 = patch.object(OllamaAttributor, "attribute", attr_mock)
-        return p1, p2
+        p3 = patch.object(OllamaAttributor, "attribute_quotes", quotes_mock)
+        p4 = patch.object(OllamaAttributor, "close", close_mock)
+
+        class CombinedContext:
+            def __enter__(self):
+                p1.__enter__()
+                p2.__enter__()
+                p3.__enter__()
+                p4.__enter__()
+                return attr_mock
+
+            def __exit__(self, *exc):
+                p4.__exit__(*exc)
+                p3.__exit__(*exc)
+                p2.__exit__(*exc)
+                p1.__exit__(*exc)
+
+        class DummyContext:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, *args):
+                pass
+
+        ctx = CombinedContext()
+        return ctx, DummyContext()
 
     def test_attribute_command_creates_attribution_json(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

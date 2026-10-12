@@ -36,6 +36,10 @@ class FakeTTS(TTSEngine):
         {"id": "fake-narrator", "name": "Fake Narrator (silence)"},
         {"id": "fake-char-1", "name": "Fake Character 1 (silence)"},
         {"id": "fake-char-2", "name": "Fake Character 2 (silence)"},
+        {"id": "fake-char-3", "name": "Fake Character 3 (silence)"},
+        {"id": "fake-char-4", "name": "Fake Character 4 (silence)"},
+        {"id": "fake-extra-1", "name": "Fake Extra 1 (silence)"},
+        {"id": "fake-extra-2", "name": "Fake Extra 2 (silence)"},
     ]
 
     def __init__(

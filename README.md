@@ -21,7 +21,7 @@ All processing is **offline after first model download**.
 
 ---
 
-## Quick start (M0/M1)
+## Quick start
 
 ```bash
 # 1. Clone and enter the project
@@ -37,6 +37,10 @@ uv run castbook doctor
 # 4. Ingest a book
 uv run castbook ingest mybook.epub --project dracula
 # Output: projects/dracula/book.json + projects/dracula/chapters.txt
+
+# 5. Convert to audiobook (narrator mode)
+uv run castbook convert --project dracula --engine fake
+# Output: projects/dracula/output/chapter_*.mp3 + projects/dracula/output/dracula.m4b
 ```
 
 ### Running tests
