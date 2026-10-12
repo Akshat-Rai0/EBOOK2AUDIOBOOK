@@ -114,13 +114,13 @@ VCTK speaker IDs (p225–p376) do not reliably match the `speaker-info.txt` demo
 
 **Acoustic Similarity Proxy (without verified tags):**
 To differentiate speakers without trusting demographic labels, each voice entry stores measured acoustic features:
-- `measured_median_f0_hz`: float (median fundamental frequency in Hz; e.g. 120 Hz for deep male voices, 220 Hz for high female voices).
-- `measured_spectral_centroid_hz`: float (center of mass of spectrum, correlating with timbre brightness; e.g. 1500–2500 Hz).
-- `acoustic_proxy_verified`: bool (flagged advisory until verified across corpus).
+- `proxy_median_f0_hz`: float | null (median fundamental frequency in Hz; e.g. 120 Hz for deep male voices, 220 Hz for high female voices). Null if unmeasured.
+- `proxy_spectral_centroid_hz`: float | null (center of mass of spectrum, correlating with timbre brightness; e.g. 1500–2500 Hz). Null if unmeasured.
+- `acoustic_proxy_verified`: bool (true only if values measured via `scripts/measure_voices.py`).
 
 Acoustic similarity between two voices $u$ and $v$ is computed as Euclidean distance over normalized proxy values:
 $$D(u, v) = \sqrt{\left(\frac{\Delta f_0}{\sigma_{f0}}\right)^2 + \left(\frac{\Delta SC}{\sigma_{SC}}\right)^2}$$
-Voices with $D(u, v) < 1.0$ receive a heavy collision penalty when characters appear in adjacent dialogue.
+If either voice lacks proxy values (null), $D(u, v) = \infty$ (no acoustic distinctness signal). Voices with $D(u, v) < 1.0$ receive a heavy collision penalty when characters appear in adjacent dialogue. When no proxies are available, the caster falls back to catalogue order (deterministic) and logs that distinctness is unmeasured.
 
 Catalogue schema per voice entry:
 ```json
@@ -134,8 +134,8 @@ Catalogue schema per voice entry:
   "age_verified": false,
   "accent": "unknown",
   "accent_verified": false,
-  "measured_median_f0_hz": 185.0,
-  "measured_spectral_centroid_hz": 1950.0,
+  "proxy_median_f0_hz": null,
+  "proxy_spectral_centroid_hz": null,
   "acoustic_proxy_verified": false,
   "licence": "MIT",
   "narrator_reserved": false
@@ -184,7 +184,7 @@ All commands wrap pure library functions from `ebook2audiobook.casting`:
 | `castbook cast voice -p <p> <character> <voice-id>` | Assign specific voice; marks `user_locked=True`. |
 | `castbook cast rename -p <p> <character> <new-name>` | Rename display name; logs to merge history for undo. |
 | `castbook cast merge -p <p> <source> <target>` | Merge two characters. Transactional: updates both `cast.json` and SQLite segments atomically. Records to merge history. Winner precedence: if `source` is `user_locked`, winner is `source`; if `target` is `user_locked`, winner is `target`; if both are `user_locked`, **abort with error** (ask user to manually resolve). Logs to `merge_history.json` for undo. |
-| `castbook cast split -p <p> <character> <segment-id>` | Detach segment from a merged character; creates or restores separate entry. |
+| `castbook cast split -p <p> <character> <segment-id>` | Detach segment from a merged character; creates or restores separate entry. **DEFERRED** (not implemented in current work). |
 | `castbook cast approve -p <p> [--auto]` | Store SHA256 of approved cast. `--auto`: sets unknown → narrator, accepts all suggestions. |
 | `castbook cast undo -p <p>` | Revert last merge or rename from `merge_history.json`. Works for both `cast.json` and SQLite segments transactionally. |
 
@@ -271,8 +271,9 @@ All tests run offline with `FakeTTS` and deterministic `FakeAttributor`. Steps 1
 1. **`test_voice_catalogue.py`**
    - Load catalogue for each engine (fake/vits/xtts from JSON).
    - All entries default to `*_verified=false`; `filter_verified()` returns empty unless tag is verified.
-   - Acoustic proxy similarity: $D(u, v)$ calculation on `measured_median_f0_hz` and `measured_spectral_centroid_hz`.
+   - Acoustic proxy similarity: $D(u, v)$ calculation on `proxy_median_f0_hz` and `proxy_spectral_centroid_hz`. Returns infinity when either voice lacks proxy values.
    - `narrator_reserved` voice excluded from `available_for_character()`.
+   - Test that all catalogue IDs exist in the real engine's voice list (runtime validation).
 
 2. **`test_caster.py`**
    - Frequency ranking: highest `line_count` character gets first pick.
@@ -294,7 +295,8 @@ All tests run offline with `FakeTTS` and deterministic `FakeAttributor`. Steps 1
    - `cast undo` reverts last merge in both `cast.json` and SQLite.
    - `cast approve` stores hash; subsequent edit invalidates.
    - `cast approve --auto` sets unknown → narrator.
-   - `cast rename` and `cast split` log to merge history for undo.
+   - `cast rename` logs to merge history for undo.
+   - `cast split` is **DEFERRED** (not implemented).
 
 4. **`test_cast_review_interaction.py`**
    - `cast review` steps through unknown/low-confidence (< `review_confidence_threshold`) segments.
