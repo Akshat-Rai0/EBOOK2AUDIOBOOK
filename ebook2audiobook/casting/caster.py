@@ -230,6 +230,23 @@ class Caster:
         if not pool:
             pool = list(candidates)
 
+        # Check if any candidate has verified acoustic proxy values
+        has_acoustic_proxies = any(
+            c.proxy_median_f0_hz is not None and c.proxy_spectral_centroid_hz is not None
+            for c in pool
+        )
+
+        if not has_acoustic_proxies:
+            # Fallback: spread by catalogue order (simple deterministic rule)
+            # Log that distinctness is unmeasured
+            logger.info(
+                "No acoustic proxy values available for %s engine voices; "
+                "using catalogue order fallback (distinctness unmeasured)",
+                engine,
+            )
+            # Return first available voice (deterministic by catalogue order)
+            return pool[0] if pool else None
+
         # Score candidates: lower penalty is better
         def score(voice: VoiceEntry) -> float:
             penalty = 0.0

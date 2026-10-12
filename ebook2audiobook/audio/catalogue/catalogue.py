@@ -45,13 +45,13 @@ class VoiceEntry(BaseModel):
     age_verified: bool = Field(default=False, description="True if verified by listening.")
     accent: str = Field(default="unknown", description="Accent tag or unknown.")
     accent_verified: bool = Field(default=False, description="True if verified by listening.")
-    measured_median_f0_hz: float = Field(
-        default=160.0,
-        description="Median fundamental frequency (Hz).",
+    proxy_median_f0_hz: float | None = Field(
+        default=None,
+        description="Median fundamental frequency (Hz) proxy. Null if unmeasured.",
     )
-    measured_spectral_centroid_hz: float = Field(
-        default=1900.0,
-        description="Center of mass of spectrum (Hz).",
+    proxy_spectral_centroid_hz: float | None = Field(
+        default=None,
+        description="Center of mass of spectrum (Hz) proxy. Null if unmeasured.",
     )
     acoustic_proxy_verified: bool = Field(
         default=False,
@@ -68,11 +68,17 @@ class VoiceEntry(BaseModel):
         Compute Euclidean distance in normalized (F0, Spectral Centroid) space.
 
         A distance < 1.0 represents high acoustic similarity (potential collision).
+        Returns infinity if either voice lacks proxy measurements.
         """
-        z_f0_self = (self.measured_median_f0_hz - _F0_MEAN) / _F0_STD
-        z_f0_other = (other.measured_median_f0_hz - _F0_MEAN) / _F0_STD
-        z_sc_self = (self.measured_spectral_centroid_hz - _SC_MEAN) / _SC_STD
-        z_sc_other = (other.measured_spectral_centroid_hz - _SC_MEAN) / _SC_STD
+        if self.proxy_median_f0_hz is None or self.proxy_spectral_centroid_hz is None:
+            return float("inf")
+        if other.proxy_median_f0_hz is None or other.proxy_spectral_centroid_hz is None:
+            return float("inf")
+
+        z_f0_self = (self.proxy_median_f0_hz - _F0_MEAN) / _F0_STD
+        z_f0_other = (other.proxy_median_f0_hz - _F0_MEAN) / _F0_STD
+        z_sc_self = (self.proxy_spectral_centroid_hz - _SC_MEAN) / _SC_STD
+        z_sc_other = (other.proxy_spectral_centroid_hz - _SC_MEAN) / _SC_STD
 
         delta_f0 = z_f0_self - z_f0_other
         delta_sc = z_sc_self - z_sc_other
@@ -82,18 +88,49 @@ class VoiceEntry(BaseModel):
 class VoiceCatalogue:
     """Manages voice entries across engines."""
 
-    def __init__(self, catalogue_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        catalogue_dir: Path | None = None,
+        engine_validators: dict[str, list[dict]] | None = None,
+    ) -> None:
+        """
+        Parameters
+        ----------
+        catalogue_dir:
+            Directory containing {engine}_voices.json files.
+        engine_validators:
+            Optional mapping of engine name to list_voices() output for validation.
+            If provided, catalogue IDs are validated against the real engine's voice list
+            and unknown IDs are dropped with a warning.
+        """
         self.catalogue_dir = catalogue_dir or Path(__file__).parent
         self._entries_by_engine: dict[str, list[VoiceEntry]] = {}
-        self._load_all()
+        self._load_all(engine_validators or {})
 
-    def _load_all(self) -> None:
+    def _load_all(self, engine_validators: dict[str, list[dict]]) -> None:
         for engine in ("fake", "vits", "xtts"):
             path = self.catalogue_dir / f"{engine}_voices.json"
             if path.exists():
                 try:
                     data = json.loads(path.read_text(encoding="utf-8"))
                     entries = [VoiceEntry.model_validate(item) for item in data]
+
+                    # Validate against engine's real voice list if validator provided
+                    if engine in engine_validators:
+                        valid_ids = {v["id"] for v in engine_validators[engine]}
+                        filtered_entries = []
+                        for entry in entries:
+                            if entry.id in valid_ids:
+                                filtered_entries.append(entry)
+                            else:
+                                logger.warning(
+                                    "Dropping unknown voice ID %s from %s catalogue "
+                                    "(not in engine.list_voices())",
+                                    entry.id,
+                                    engine,
+                                )
+                        entries = filtered_entries
+
                     self._entries_by_engine[engine] = entries
                 except Exception as exc:
                     logger.warning("Failed to load catalogue %s: %s", path, exc)
@@ -150,3 +187,24 @@ class VoiceCatalogue:
                 if c.age_verified and c.age_bracket.lower() == age_bracket.lower()
             ]
         return candidates
+
+    def validate_against_engine(self, engine: str, engine_voices: list[dict]) -> None:
+        """
+        Validate catalogue entries against a real engine's voice list.
+
+        Drops unknown voice IDs with a warning. This should be called once
+        after engine initialization to ensure catalogue only contains valid IDs.
+        """
+        valid_ids = {v["id"] for v in engine_voices}
+        filtered_entries = []
+        for entry in self._entries_by_engine.get(engine, []):
+            if entry.id in valid_ids:
+                filtered_entries.append(entry)
+            else:
+                logger.warning(
+                    "Dropping unknown voice ID %s from %s catalogue "
+                    "(not in engine.list_voices())",
+                    entry.id,
+                    engine,
+                )
+        self._entries_by_engine[engine] = filtered_entries
