@@ -24,6 +24,13 @@ from ebook2audiobook.evaluation.metrics import (
     compute_confusion_matrix,
     compute_labeller_consistency,
 )
+from ebook2audiobook.evaluation.style import (
+    QuoteStyle,
+    StyleAnalysis,
+    analyze_chapter_styles,
+    apply_manual_overrides,
+    detect_style,
+)
 
 __all__ = [
     "AlignmentResult",
@@ -39,4 +46,9 @@ __all__ = [
     "compute_alias_merge_metrics",
     "compute_confusion_matrix",
     "compute_labeller_consistency",
+    "QuoteStyle",
+    "StyleAnalysis",
+    "analyze_chapter_styles",
+    "apply_manual_overrides",
+    "detect_style",
 ]
