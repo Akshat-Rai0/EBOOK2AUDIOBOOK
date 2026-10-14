@@ -210,7 +210,8 @@ def propose_threshold(
     for threshold, precision, review_frac in zip(
         calibration_curve.thresholds,
         calibration_curve.auto_accept_precision,
-        calibration_curve.review_fraction, strict=False,
+        calibration_curve.review_fraction,
+        strict=False,
     ):
         if precision >= target_precision and review_frac <= max_review_fraction:
             reasoning = (
@@ -224,7 +225,8 @@ def propose_threshold(
     for threshold, precision, review_frac in zip(
         calibration_curve.thresholds,
         calibration_curve.auto_accept_precision,
-        calibration_curve.review_fraction, strict=False,
+        calibration_curve.review_fraction,
+        strict=False,
     ):
         if precision >= target_precision:
             reasoning = (
