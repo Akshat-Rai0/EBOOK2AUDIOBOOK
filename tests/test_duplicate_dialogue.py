@@ -87,6 +87,4 @@ class TestDuplicateDialogueMarking:
             text=self._PARA,
         )
         for seg in segments:
-            assert seg.text.strip(), (
-                f"Segment {seg.id} has empty/whitespace text: {repr(seg.text)}"
-            )
+            assert seg.text.strip(), f"Segment {seg.id} has empty/whitespace text: {repr(seg.text)}"

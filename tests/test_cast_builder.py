@@ -1,6 +1,5 @@
 """Tests for cast seed builder with fake NER."""
 
-
 from ebook2audiobook.attribution.cast_builder import (
     CastSeedFile,
     build_cast_seed,

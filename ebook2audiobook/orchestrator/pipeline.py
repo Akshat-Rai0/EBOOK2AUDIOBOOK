@@ -274,9 +274,7 @@ class PipelineOrchestrator:
             raw_ch_wav = self.audio_dir / f"chapter_{ch.index + 1:02d}_raw.wav"
             norm_ch_wav = self.audio_dir / f"chapter_{ch.index + 1:02d}.wav"
 
-            self.processor.assemble_chapter_wav(
-                ch_segments, raw_ch_wav, split_pause_ms=150
-            )
+            self.processor.assemble_chapter_wav(ch_segments, raw_ch_wav, split_pause_ms=150)
             self.processor.normalize_loudness(raw_ch_wav, norm_ch_wav)
 
             # Calculate duration in seconds

@@ -407,4 +407,3 @@ class TestPipelineOrchestrator:
         # 3. Verify memory is released after synthesis finishes
         assert manager.loaded_model_name is None
         assert manager._current_model is None
-

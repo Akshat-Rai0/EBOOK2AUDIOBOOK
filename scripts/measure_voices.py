@@ -100,8 +100,7 @@ def estimate_spectral_centroid(audio: np.ndarray, sr: int) -> float:
 def measure_fake_voices() -> None:
     """Skip fake voices (generates silence, so acoustic measurements are meaningless)."""
     logger.info(
-        "Skipping fake voices: FakeTTS generates silence, "
-        "acoustic measurements are meaningless",
+        "Skipping fake voices: FakeTTS generates silence, acoustic measurements are meaningless",
     )
     logger.info(
         "Fake voices will retain null proxy values and acoustic_proxy_verified=False",

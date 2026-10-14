@@ -49,9 +49,7 @@ def _get_tts():
         _TTS = TTS
         return _TTS
     except ImportError as exc:
-        raise TTSError(
-            "coqui-tts not installed. Run: uv sync --extra tts"
-        ) from exc
+        raise TTSError("coqui-tts not installed. Run: uv sync --extra tts") from exc
 
 
 class XTTS(TTSEngine):
@@ -189,9 +187,7 @@ class XTTS(TTSEngine):
         # Validate speaker ID
         if self._speaker_manager and speaker_id not in self._speaker_manager.speaker_names:
             available = ", ".join(self._speaker_manager.speaker_names[:5]) + "..."
-            raise TTSError(
-                f"Unknown XTTS speaker: {speaker_id}. Available: {available}"
-            )
+            raise TTSError(f"Unknown XTTS speaker: {speaker_id}. Available: {available}")
 
         # Synthesize using the high-level TTS API
         # The newer Coqui API handles speaker latents internally

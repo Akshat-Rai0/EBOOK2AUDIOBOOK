@@ -72,9 +72,7 @@ def get_engine(
                     )
             return VITS(device=device)
         except ImportError as exc:
-            raise TTSError(
-                "VITS engine requires coqui-tts. Run: uv sync --extra tts"
-            ) from exc
+            raise TTSError("VITS engine requires coqui-tts. Run: uv sync --extra tts") from exc
 
     if name == "xtts":
         try:
@@ -88,8 +86,6 @@ def get_engine(
                     )
             return XTTS(device=device)
         except ImportError as exc:
-            raise TTSError(
-                "XTTS engine requires coqui-tts. Run: uv sync --extra tts"
-            ) from exc
+            raise TTSError("XTTS engine requires coqui-tts. Run: uv sync --extra tts") from exc
 
     raise ValueError(f"Unknown engine: {name}. Available: fake, vits, xtts")
