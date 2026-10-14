@@ -14,6 +14,13 @@ from ebook2audiobook.evaluation.alignment import (
     extract_quotes_from_text,
     verify_source_integrity,
 )
+from ebook2audiobook.evaluation.calibration import (
+    CalibrationCurve,
+    ConfidenceBucket,
+    bucket_by_confidence,
+    compute_calibration_curve,
+    propose_threshold,
+)
 from ebook2audiobook.evaluation.metrics import (
     AliasMergeMetrics,
     AttributionMetrics,
@@ -51,4 +58,9 @@ __all__ = [
     "analyze_chapter_styles",
     "apply_manual_overrides",
     "detect_style",
+    "CalibrationCurve",
+    "ConfidenceBucket",
+    "bucket_by_confidence",
+    "compute_calibration_curve",
+    "propose_threshold",
 ]
