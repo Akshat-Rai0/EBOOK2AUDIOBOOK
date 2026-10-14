@@ -21,6 +21,17 @@ from ebook2audiobook.evaluation.calibration import (
     compute_calibration_curve,
     propose_threshold,
 )
+from ebook2audiobook.evaluation.harness import (
+    VARIANTS,
+    EvaluationConfig,
+    RunMetadata,
+    RunResult,
+    generate_run_id,
+    get_variant_config,
+    list_runs,
+    load_run_result,
+    save_run_result,
+)
 from ebook2audiobook.evaluation.metrics import (
     AliasMergeMetrics,
     AttributionMetrics,
@@ -63,4 +74,13 @@ __all__ = [
     "bucket_by_confidence",
     "compute_calibration_curve",
     "propose_threshold",
+    "EvaluationConfig",
+    "RunMetadata",
+    "RunResult",
+    "generate_run_id",
+    "get_variant_config",
+    "list_runs",
+    "load_run_result",
+    "save_run_result",
+    "VARIANTS",
 ]
